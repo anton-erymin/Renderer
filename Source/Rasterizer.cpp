@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <cassert>
+#include <algorithm>
 
 #include "Logger.h"
 
@@ -9,7 +10,7 @@ Rasterizer::Rasterizer() {
     std::memset(attributeInfos, 0, RASTERIZER_MAX_ATTRIBUTES * sizeof(AttributeInterpolationInfo));
 }
 
-void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget) {
+void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, FragmentShader &shader) {
     if (triangleInfo.numAttributes > RASTERIZER_MAX_ATTRIBUTES) {
         throw std::runtime_error{"Exceeds maximum number of vertex attributes"};
     }
@@ -34,10 +35,12 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
         return;
     }
     
+    // Side heights of triangle
     const float_t sideHeight1 = float_t(x3.y - x1.y);
     const float_t sideHeight2 = float_t(x2.y - x1.y);
     const float_t sideHeight3 = float_t(x3.y - x2.y);
 
+    // Compute attribute slopes
     for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
         attributeInfos[i].d1 = float_t(triangleInfo.v3.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight1;
         attributeInfos[i].d2 = sideHeight2 > 0 ? float_t(triangleInfo.v2.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight2 : 0;
@@ -86,12 +89,15 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
                 }
             }
 
-            if (depthTestPassed && x >= 0 && x < target.Width() && y >= 0 && y < target.Height()) {
-                attributeInfos[1].attributeValue = attributeInfos[1].attributeValue * 0.5 + 0.5;
-                attributeInfos[2].attributeValue = attributeInfos[2].attributeValue * 0.5 + 0.5;
-                attributeInfos[3].attributeValue = attributeInfos[3].attributeValue * 0.5 + 0.5;
+            // Copy attributes
+            float_t attributeValues[RASTERIZER_MAX_ATTRIBUTES];
+            for (size_t i = 0, j = depthTarget ? 1 : 0; i < triangleInfo.numAttributes; ++i, ++j) {
+                attributeValues[i] = attributeInfos[j].attributeValue;
+            }
 
-                target.Set(x, y, Color3{attributeInfos[1].attributeValue, attributeInfos[2].attributeValue, attributeInfos[3].attributeValue});
+            if (depthTestPassed && x >= int32_t(0) && x < int32_t(target.Width()) && 
+                y >= int32_t(0) && y < int32_t(target.Height())) {
+                target.Set(x, y, Vec3f{shader.Call(attributeValues)});
             }
 
         });
@@ -114,15 +120,16 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
                     break;
                 }
             }
-            if (x >= 0 && x < target.Width() && y >= 0 && y < target.Height()) {
-                target.Set(x, y, Color3{1, 1, 1});
+            if (x >= int32_t(0) && x < int32_t(target.Width()) && 
+                y >= int32_t(0) && y < int32_t(target.Height())) {
+                target.Set(x, y, Vec3f{1, 1, 1});
             }
         });
         break;
     case PolygonMode::Point:
-        target.Set(x1.x, x1.y, Color3{1, 1, 1});
-        target.Set(x2.x, x2.y, Color3{1, 1, 1});
-        target.Set(x3.x, x3.y, Color3{1, 1, 1});
+        target.Set(x1.x, x1.y, Vec3f{1, 1, 1});
+        target.Set(x2.x, x2.y, Vec3f{1, 1, 1});
+        target.Set(x3.x, x3.y, Vec3f{1, 1, 1});
         break;
     default:
         break;

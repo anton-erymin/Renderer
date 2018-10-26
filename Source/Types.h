@@ -25,9 +25,6 @@ using Vec2f = Vec2<float_t>;
 using Vec3f = Vec3<float_t>;
 using Vec4f = Vec4<float_t>;
 
-using Color3 = Vec3f;
-using Color4 = Vec4f;
-
 #include "Mat3.h"
 #include "Mat4.h"
 

@@ -7,33 +7,39 @@
 
 class Texture {
 public:
-	Texture(const std::string &name, size_t width, size_t height, size_t numComponents, size_t bytesPerComponent);
+    Texture() = default;
+	Texture(const std::string &name, uint32_t width, uint32_t height, size_t numComponents, size_t bytesPerComponent);
+    Texture(const std::string &fileName);
 
     void Clear(const void *clearValues);
 
 	void Set(size_t x, size_t y, size_t component, const void *value);
-    void Set(size_t x, size_t y, const void *values, size_t numValues);
-	void Set(size_t x, size_t y, const Color3 &value);
-	void Set(size_t x, size_t y, const Color4 &value);
-
-    void Get(size_t x, size_t y, size_t component, void *outValue);
+    void Set(size_t x, size_t y, const void *values);
+	void Set(size_t x, size_t y, const Vec3f &value);
+	void Set(size_t x, size_t y, const Vec4f &value);
+    void Get(size_t x, size_t y, size_t component, void *outValue) const;
+    void Get(size_t x, size_t y, void * outValues) const;
 
 	void SaveBmp(const std::string &fileName) const;
 
-	size_t Width() const { return width; }
-	size_t Height() const { return height; }
+    void Sample(float_t u, float_t v, void * outValue) const;
+
+	uint32_t Width() const { return width; }
+    uint32_t Height() const { return height; }
 
     const std::string &Name() const { return name; }
+
+    float_t GetAspectRatio() const { return static_cast<float_t>(width) / static_cast<float_t>(height); }
 
 private:
 	friend std::ostream &operator<<(std::ostream &os, const Texture &obj);
 
-    const std::string name;
+    std::string name;
 
-	const size_t width;
-	const size_t height;
-	const size_t numComponents;
-	const size_t bytesPerComponent;
+	uint32_t width;
+	uint32_t height;
+	size_t numComponents;
+	size_t bytesPerComponent;
 
 	std::vector<uint8_t> buffer;
 };

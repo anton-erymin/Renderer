@@ -148,6 +148,11 @@ void operator+=(Vec3<T> &lhs, const Vec3<T> &rhs) {
 }
 
 template <typename T>
+Vec3<T> operator+(const Vec3<T> &lhs, const T rhs) {
+    return {lhs.x + rhs, lhs.y + rhs, lhs.z + rhs};
+}
+
+template <typename T>
 Vec3<T> operator-(const Vec3<T> &lhs, const Vec3<T> &rhs) {
 	return lhs.SubR(rhs);
 }
@@ -155,6 +160,11 @@ Vec3<T> operator-(const Vec3<T> &lhs, const Vec3<T> &rhs) {
 template <typename T>
 void operator-=(const Vec3<T> &lhs, const Vec3<T> &rhs) {
 	lhs.Sub(rhs);
+}
+
+template <typename T>
+Vec3<T> operator-(const Vec3<T> &lhs, const T rhs) {
+    return {lhs.x - rhs, lhs.y - rhs, lhs.z - rhs};
 }
 
 template <typename T>
@@ -168,8 +178,8 @@ Vec3<T> operator*(const Vec3<T> &lhs, T s) {
 }
 
 template <typename T>
-T operator*(const Vec3<T> &lhs, const Vec3<T> &rhs) {
-	return lhs.Dot(rhs);
+Vec3<T> operator*(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+    return {lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z};
 }
 
 template <typename T>
@@ -190,4 +200,16 @@ void operator%=(const Vec3<T> &lhs, const Vec3<T> &rhs) {
 template <typename T>
 std::ostream &operator<<(std::ostream &os, const Vec3<T> &obj) {
 	return os << "(" << obj.x << ", " << obj.y << ", " << obj.z << ")";
+}
+
+template <typename T>
+T Dot(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+    return lhs.Dot(rhs);
+}
+
+template <typename T>
+Vec3<T> Normalize(const Vec3<T> &v) {
+    Vec3<T> result = v;
+    result.Normalize();
+    return result;
 }

@@ -4,8 +4,9 @@
 
 #include "Types.h"
 #include "Texture.h"
+#include "Shader.h"
 
-constexpr size_t RASTERIZER_MAX_ATTRIBUTES = 16;
+constexpr size_t RASTERIZER_MAX_ATTRIBUTES = 64;
 
 enum class PolygonMode {
     Fill = 0,
@@ -33,7 +34,7 @@ struct DrawTriangleInfo {
 class Rasterizer {
 public:
     Rasterizer();
-    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget);
+    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, FragmentShader &shader);
 
 private:
     struct AttributeInterpolationInfo {

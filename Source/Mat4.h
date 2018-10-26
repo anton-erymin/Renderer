@@ -432,9 +432,9 @@ void Mat4<T>::LookAt(const Vec3<T> &eye, const Vec3<T> &target, const Vec3<T> &u
     a31 = Z.x;
     a32 = Z.y;
     a33 = Z.z;
-    a14 = -(X * eye);
-    a24 = -(Y * eye);
-    a34 = -(Z * eye);
+    a14 = -X.Dot(eye);
+    a24 = -Y.Dot(eye);
+    a34 = -Z.Dot(eye);
 }
 
 template <typename T>

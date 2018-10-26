@@ -19,14 +19,36 @@ int main() {
     float_t depthClearValue[] = {1.0f};
     depthTexture.Clear(depthClearValue);
 
-    //Mesh mesh{"Data\\Cube\\cube.obj"};
-    //Mesh mesh{"Data\\CornellBox\\cornellbox.obj"};
-    Mesh mesh{"Data/Car/Car.obj"};
-    LOG(mesh);
+    Scene scene;
+
+    //scene.LoadMeshFromObj("Data\\Cube\\cube.obj");
+    //scene.LoadMeshFromObj("Data/Sponza/sponza.obj");
+    scene.LoadMeshFromObj("Data/Car/Car.obj");
+    //scene.LoadMeshFromObj("Data\\CornellBox\\cornellbox.obj");
+
+    Mat4f projection;
+    Mat4f view;
+    Mat4f model;
+
+    view.LookAt({0.0f, 10.0f, 3.0f}, {0, 0, 0}, {0, 1, 0});
+
+    projection.PerspectiveProjection(45.0f, frameBuffer.GetAspectRatio(), 0.01f, 10000.0f);
 
     Render render;
+    VertexShader vertexShader;
+    FragmentShader fragmentShader;
 
-    render.RenderMesh(mesh, PolygonMode::Fill, frameBuffer, &depthTexture);
+    vertexShader.model = model;
+    vertexShader.view = view;
+    vertexShader.projection = projection;
+
+    Viewport viewport;
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = frameBuffer.Width();
+    viewport.height = frameBuffer.Height();
+
+    render.RenderScene(scene, frameBuffer, &depthTexture, vertexShader, fragmentShader, viewport);
 
     auto framebufferFileName = SaveTexture(frameBuffer);
     SaveTexture(depthTexture);

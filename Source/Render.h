@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Rasterizer.h"
-#include "Mesh.h"
+#include "Scene.h"
 #include "Texture.h"
+#include "Shader.h"
 
 enum class FrontFace {
     CW = 0,
@@ -27,7 +28,9 @@ class Render {
 public:
     bool IsFaceCulled(const Vec4f & v1, const Vec4f & v2, const Vec4f & v3);
 
-    void RenderMesh(const Mesh &mesh, PolygonMode polygonMode, Texture &target, Texture *depthTarget);
+
+    void RenderScene(const Scene &scene, Texture &target, Texture *depthTarget, VertexShader &vertexShader, FragmentShader &fragmentShader, const Viewport &viewport);
+    void RenderMesh(const Mesh &mesh, PolygonMode polygonMode, Texture &target, Texture *depthTarget, VertexShader &vertexShader, FragmentShader &fragmentShader, const Viewport &viewport);
 	
 private:
     Rasterizer rasterizer;

@@ -8,58 +8,85 @@
 #include "stb_image_write.h"
 
 Texture::Texture(const std::string &name, size_t width, size_t height, size_t numComponents, size_t bytesPerComponent)
-	: name_(name)
-    , width_(width)
-	, height_(height)
-	, numComponents_(numComponents)
-	, bytesPerComponent_(bytesPerComponent)
-	, buffer_(width * height * numComponents * bytesPerComponent) {}
+	: name(name)
+    , width(width)
+	, height(height)
+	, numComponents(numComponents)
+	, bytesPerComponent(bytesPerComponent)
+	, buffer(width * height * numComponents * bytesPerComponent) {}
+
+void Texture::Clear(const void *clearValues) {
+    for (size_t j = 0; j < height; j++) {
+        for (size_t i = 0; i < width; i++) {
+            Set(i, j, clearValues, numComponents);
+        }
+    }
+}
 
 void Texture::Set(size_t x, size_t y, size_t component, const void *values) {
-	auto i = (y * width_ + x) * (numComponents_ * bytesPerComponent_) + component * bytesPerComponent_;
-	if (i >= buffer_.size()) {
-		throw std::out_of_range{"i"};
-	}
-	std::memcpy(&buffer_[i], values, bytesPerComponent_);
+	auto i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+    assert(i < buffer.size());
+	std::memcpy(&buffer[i], values, bytesPerComponent);
 }
 
 void Texture::Set(size_t x, size_t y, const void *values, size_t numValues) {
-    auto i = (y * width_ + x) * (numComponents_ * bytesPerComponent_);
-    if (i >= buffer_.size()) {
-        throw std::out_of_range{"i"};
-    }
-    std::memcpy(&buffer_[i], values, numValues * bytesPerComponent_);
+    auto i = (y * width + x) * (numComponents * bytesPerComponent);
+    assert(i < buffer.size());
+    std::memcpy(&buffer[i], values, numValues * bytesPerComponent);
 }
 
 void Texture::Set(size_t x, size_t y, const Color3 &value) {
-	if (numComponents_ < 3) {
+	if (numComponents < 3) {
 		throw std::logic_error("Must be at least 3 components texture");
 	}
     Set(x, y, &value, 3);
 }
 
 void Texture::Set(size_t x, size_t y, const Color4 &value) {
-	if (numComponents_ < 4) {
+	if (numComponents < 4) {
 		throw std::logic_error("Must be at least 4 components texture");
 	}
     Set(x, y, &value, 4);
 }
 
+void Texture::Get(size_t x, size_t y, size_t component, void *outValue) {
+    auto i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+    assert(i < buffer.size());
+    *((float*)outValue) = *((float*)&buffer[i]);
+}
+
 void Texture::SaveBmp(const std::string &fileName) const {
-	std::vector<uint8_t> image;
-	image.resize(3 * width_ * height_);
+    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
 
-	auto srcPtr = buffer_.data();
-	auto dstPtr = image.data();
-	for (size_t i = 0; i < 3 * width_ * height_; ++i) {
-		*dstPtr++ = (uint8_t)(*((float*)srcPtr) * 255);
-		srcPtr += bytesPerComponent_;
-	}
+	std::vector<uint8_t> imageData;
+	imageData.resize(3 * width * height);
 
-	stbi_write_bmp(fileName.empty() ? name_.c_str() : fileName.c_str(), (int)width_, (int)height_, 3, image.data());
+	auto srcPtr = buffer.data();
+	auto dstPtr = imageData.data();
+    float r, g, b;
+
+    for (size_t i = 0; i < width * height; i++) {
+        if (numComponents == 1) {
+            r = g = b = *((float*)srcPtr);
+            srcPtr += bytesPerComponent;
+        } else if (numComponents == 3) {
+            r = *((float*)srcPtr);
+            srcPtr += bytesPerComponent;
+            g = *((float*)srcPtr);
+            srcPtr += bytesPerComponent;
+            b = *((float*)srcPtr);
+            srcPtr += bytesPerComponent;
+        }
+
+        *dstPtr++ = uint8_t(r * 255.0);
+        *dstPtr++ = uint8_t(g * 255.0);
+        *dstPtr++ = uint8_t(b * 255.0);
+    }
+
+	stbi_write_bmp(fileName.empty() ? name.c_str() : fileName.c_str(), (int)width, (int)height, 3, imageData.data());
 }
 
 std::ostream &operator<<(std::ostream &os, const Texture &obj) {
-	return os << "Texture{" << obj.name_.c_str() << ", w=" << obj.width_ << ", h=" << obj.height_ << ", c=" << obj.numComponents_ 
-			  << ", bpc=" << obj.bytesPerComponent_ << "}";
+	return os << "Texture{" << obj.name.c_str() << ", w=" << obj.width << ", h=" << obj.height << ", c=" << obj.numComponents 
+			  << ", bpc=" << obj.bytesPerComponent << "}";
 }

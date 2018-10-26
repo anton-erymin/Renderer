@@ -22,18 +22,18 @@ Mesh::Mesh(const std::string &filename) {
     }
 
     for (size_t i = 0; i < attrib.vertices.size(); i += 3) {
-        vertices_.push_back(Vec4f{Vec3f{&attrib.vertices[i]}});
+        vertices.push_back(Vec4f{Vec3f{&attrib.vertices[i]}, 1.0f});
     }
     for (size_t i = 0; i < attrib.normals.size(); i += 3) {
-        normals_.push_back(Vec4f{Vec3f{&attrib.normals[i]}});
+        normals.push_back(Vec4f{Vec3f{&attrib.normals[i]}});
     }
     for (size_t i = 0; i < attrib.texcoords.size(); i += 2) {
-        uvs_.push_back(Vec2f{attrib.texcoords[i], attrib.texcoords[i + 1]});
+        uvs.push_back(Vec2f{attrib.texcoords[i], attrib.texcoords[i + 1]});
     }
-    totalTriangles_ = 0;
+    totalTriangles = 0;
     for (const auto &x : shapes) {
-        submeshes_.push_back({});
-        auto &submesh = submeshes_.back();
+        submeshes.push_back({});
+        auto &submesh = submeshes.back();
         submesh.name = x.name;
         for (size_t i = 0; i < x.mesh.indices.size(); i += 3) {
             Face face;
@@ -48,13 +48,13 @@ Mesh::Mesh(const std::string &filename) {
             face.uvIndices[2]     = x.mesh.indices[i + 2].texcoord_index;
             submesh.faces.push_back(face);
         }
-        totalTriangles_ += submesh.faces.size();
+        totalTriangles += submesh.faces.size();
     }
 }
 
 std::ostream &operator<<(std::ostream &os, const Mesh &obj) {
 	return os << "Mesh{" 
-              << obj.name_ 
-              << ", subs=" << obj.submeshes_.size()
-              << ", triangles=" << obj.totalTriangles_ << "}";
+              << obj.name 
+              << ", subs=" << obj.submeshes.size()
+              << ", triangles=" << obj.totalTriangles << "}";
 }

@@ -1,14 +1,15 @@
 #include "Rasterizer.h"
 
 #include <stdexcept>
+#include <cassert>
 
 #include "Logger.h"
 
 Rasterizer::Rasterizer() {
-    std::memset(attrs_, 0, RASTERIZER_MAX_ATTRIBUTES * sizeof(AttributeInterpolationInfo));
+    std::memset(attributeInfos, 0, RASTERIZER_MAX_ATTRIBUTES * sizeof(AttributeInterpolationInfo));
 }
 
-void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target) {
+void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget) {
     if (triangleInfo.numAttributes > RASTERIZER_MAX_ATTRIBUTES) {
         throw std::runtime_error{"Exceeds maximum number of vertex attributes"};
     }
@@ -38,9 +39,9 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target) {
     const float_t sideHeight3 = float_t(x3.y - x2.y);
 
     for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
-        attrs_[i].d1 = float_t(triangleInfo.v3.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight1;
-        attrs_[i].d2 = sideHeight2 > 0 ? float_t(triangleInfo.v2.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight2 : 0;
-        attrs_[i].d3 = sideHeight3 > 0 ? float_t(triangleInfo.v3.attributes[i] - triangleInfo.v2.attributes[i]) / sideHeight3 : 0;
+        attributeInfos[i].d1 = float_t(triangleInfo.v3.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight1;
+        attributeInfos[i].d2 = sideHeight2 > 0 ? float_t(triangleInfo.v2.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight2 : 0;
+        attributeInfos[i].d3 = sideHeight3 > 0 ? float_t(triangleInfo.v3.attributes[i] - triangleInfo.v2.attributes[i]) / sideHeight3 : 0;
     }
 
     switch (triangleInfo.polygonMode) {
@@ -54,23 +55,44 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target) {
                 // Changed to the next row so it is needed to calc new interpolated values on both sides of that row
                 // and along the row too
                 for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
-                    attrs_[i].left  = triangleInfo.v1.attributes[i] + attrs_[i].d1 * (y - x1.y);
-                    attrs_[i].right = secondHalf ? triangleInfo.v2.attributes[i] + attrs_[i].d3 * (y - x2.y)
-                                                 : triangleInfo.v1.attributes[i] + attrs_[i].d2 * (y - x1.y);
+                    attributeInfos[i].left  = triangleInfo.v1.attributes[i] + attributeInfos[i].d1 * (y - x1.y);
+                    attributeInfos[i].right = secondHalf ? triangleInfo.v2.attributes[i] + attributeInfos[i].d3 * (y - x2.y)
+                                                         : triangleInfo.v1.attributes[i] + attributeInfos[i].d2 * (y - x1.y);
                     if (swapped) {
-                        std::swap(attrs_[i].left, attrs_[i].right);
+                        std::swap(attributeInfos[i].left, attributeInfos[i].right);
                     }
                 }
                 // dattrHor will contain interpolation coeffs along the horizontal line
                 for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
-                    attrs_[i].dhor = (attrs_[i].right - attrs_[i].left) / float_t(xr - xl);
+                    attributeInfos[i].dhor = xr - xl > 0 ? (attributeInfos[i].right - attributeInfos[i].left) / float_t(xr - xl) : 0;
                 }
             }
 
             for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
-                attrs_[i].attrValue = attrs_[i].left + attrs_[i].dhor * float_t(x - xl);
+                attributeInfos[i].attributeValue = attributeInfos[i].left + attributeInfos[i].dhor * float_t(x - xl);
             }
-            target.Set(x, y, Color3{attrs_[0].attrValue, attrs_[1].attrValue, attrs_[2].attrValue});
+
+            // Depth test
+            bool depthTestPassed = true;
+            if (depthTarget) {
+                float_t newDepth = attributeInfos[0].attributeValue;
+                assert(newDepth >= -1 && newDepth <= 1);
+                float_t currentDepth = 1.0f;
+                depthTarget->Get(x, y, 0, &currentDepth);
+                if (newDepth > currentDepth) {
+                    depthTestPassed = false;
+                } else {
+                    depthTarget->Set(x, y, 0, &newDepth);
+                }
+            }
+
+            if (depthTestPassed && x >= 0 && x < target.Width() && y >= 0 && y < target.Height()) {
+                attributeInfos[1].attributeValue = attributeInfos[1].attributeValue * 0.5 + 0.5;
+                attributeInfos[2].attributeValue = attributeInfos[2].attributeValue * 0.5 + 0.5;
+                attributeInfos[3].attributeValue = attributeInfos[3].attributeValue * 0.5 + 0.5;
+
+                target.Set(x, y, Color3{attributeInfos[1].attributeValue, attributeInfos[2].attributeValue, attributeInfos[3].attributeValue});
+            }
 
         });
         break;
@@ -80,13 +102,13 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target) {
             for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
                 switch (side) {
                 case 1:
-                    attrs_[i].attrValue = triangleInfo.v1.attributes[i] + attrs_[i].d1 * (y - x1.y);
+                    attributeInfos[i].attributeValue = triangleInfo.v1.attributes[i] + attributeInfos[i].d1 * (y - x1.y);
                     break;
                 case 2:
-                    attrs_[i].attrValue = triangleInfo.v1.attributes[i] + attrs_[i].d2 * (y - x1.y);
+                    attributeInfos[i].attributeValue = triangleInfo.v1.attributes[i] + attributeInfos[i].d2 * (y - x1.y);
                     break;
                 case 3:
-                    attrs_[i].attrValue = triangleInfo.v2.attributes[i] + attrs_[i].d3 * (y - x2.y);
+                    attributeInfos[i].attributeValue = triangleInfo.v2.attributes[i] + attributeInfos[i].d3 * (y - x2.y);
                     break;
                 default:
                     break;
@@ -182,6 +204,9 @@ void Rasterizer::LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callba
     uint32_t N = ylen;
     if (xlen > ylen) {
         N = xlen;
+    }
+    if (N > 100000) {
+        return;
     }
     float_t dx = float_t(x2.x - x1.x) / N;
     float_t dy = float_t(x2.y - x1.y) / N;

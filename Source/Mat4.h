@@ -53,6 +53,7 @@ struct Mat4 {
     Mat4 operator~() const {}
 
     void PerspectiveProjection(T fov, T aspect, T znear, T zfar);
+    void LookAt(const Vec3<T> &eye, const Vec3<T> &target, const Vec3<T> &up);
 };
 
 template <typename T>
@@ -409,6 +410,31 @@ void Mat4<T>::PerspectiveProjection(T fov, T aspect, T n, T f) {
     a33 = -(f + n) / (f - n);
     a34 = -2 * f * n / (f - n);
     a43 = -1;
+    a44 = 1;
+}
+
+template<typename T>
+void Mat4<T>::LookAt(const Vec3<T> &eye, const Vec3<T> &target, const Vec3<T> &up) {
+    Identity();
+    Vec3<T> Z = eye - target;
+    Z.Normalize();
+    Vec3<T> X = up % Z;
+    X.Normalize();
+    Vec3<T> Y = Z % X;
+    Y.Normalize();
+
+    a11 = X.x;
+    a12 = X.y;
+    a13 = X.z;
+    a21 = Y.x;
+    a22 = Y.y;
+    a23 = Y.z;
+    a31 = Z.x;
+    a32 = Z.y;
+    a33 = Z.z;
+    a14 = -(X * eye);
+    a24 = -(Y * eye);
+    a34 = -(Z * eye);
 }
 
 template <typename T>

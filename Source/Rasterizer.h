@@ -8,9 +8,9 @@
 constexpr size_t RASTERIZER_MAX_ATTRIBUTES = 16;
 
 enum class PolygonMode {
-    Fill,
-    Line,
-    Point
+    Fill = 0,
+    Line = 1,
+    Point = 2
 };
 
 struct RasterizerVertex {
@@ -33,7 +33,7 @@ struct DrawTriangleInfo {
 class Rasterizer {
 public:
     Rasterizer();
-    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target);
+    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget);
 
 private:
     struct AttributeInterpolationInfo {
@@ -44,7 +44,7 @@ private:
         float_t left;
         float_t right;
         float_t dhor;
-        float_t attrValue;
+        float_t attributeValue;
     };
 
     using TriangleFillCallback = std::function<void(int32_t, int32_t, int32_t, int32_t, bool, bool)>;
@@ -58,6 +58,6 @@ private:
     void LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) const;
     void LineBresenham(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) const;
 
-    AttributeInterpolationInfo attrs_[RASTERIZER_MAX_ATTRIBUTES];
+    AttributeInterpolationInfo attributeInfos[RASTERIZER_MAX_ATTRIBUTES];
 };
 

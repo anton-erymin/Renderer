@@ -22,22 +22,22 @@ class Mesh {
 public:
     explicit Mesh(const std::string &filename);
 
-    const Vec4f &GetVertex(size_t i) const { return vertices_[i]; }
-    const Vec4f &GetNormal(size_t i) const { return normals_[i]; }
-    const Vec2f &GetUV(size_t i) const { return uvs_[i]; }
+    const Vec4f &GetVertex(size_t i) const { return vertices[i]; }
+    const Vec4f &GetNormal(size_t i) const { return normals[i]; }
+    const Vec2f &GetUV(size_t i) const { return uvs[i]; }
 
-    const std::vector<SubMesh> &GetSubmeshes() const { return submeshes_; }
+    const std::vector<SubMesh> &GetSubmeshes() const { return submeshes; }
 
 private:
     friend std::ostream &operator<<(std::ostream &os, const Mesh &obj);
 
-    std::string name_;
+    std::string name;
 
-    std::vector<Vec4f> vertices_;
-    std::vector<Vec4f> normals_;
-    std::vector<Vec2f> uvs_;
+    std::vector<Vec4f> vertices;
+    std::vector<Vec4f> normals;
+    std::vector<Vec2f> uvs;
 
-    std::vector<SubMesh> submeshes_;
+    std::vector<SubMesh> submeshes;
 
-    size_t totalTriangles_;
+    size_t totalTriangles;
 };

@@ -8,9 +8,7 @@
 #include "tiny_obj_loader.h"
 
 // The key for eliminating redundant vertices
-class ObjKey
-{
-public:
+struct ObjKey {
     inline ObjKey() {}
 
     inline bool operator <(const ObjKey &other) const {
@@ -28,7 +26,7 @@ public:
     uint32_t texcoordsIndex;
 };
 
-void Scene::LoadMeshFromObj(const std::string &filename) {
+void Scene::LoadMeshFromObj(const std::string &filename, bool scaleToUnit, bool invertTexU, bool invertTexV) {
     std::wstring wide{std::filesystem::path{filename}.parent_path()};
     std::string root = std::string{wide.begin(), wide.end()} +"/";
 
@@ -52,21 +50,66 @@ void Scene::LoadMeshFromObj(const std::string &filename) {
         materials.push_back({});
         auto& m = materials.back();
         m.name = material.name;
-        m.albedo = {material.diffuse[0], material.diffuse[1], material.diffuse[2]};
 
+        m.ambient = {material.ambient[0], material.ambient[1], material.ambient[2]};
+        m.albedo = {material.diffuse[0], material.diffuse[1], material.diffuse[2]};
+        m.specular = { material.specular[0], material.specular[1], material.specular[2] };
+        m.emission = { material.emission[0], material.emission[1], material.emission[2] };
+        m.shininess = material.shininess;
+
+        if (!material.ambient_texname.empty()) {
+            auto fullPath = root + material.ambient_texname;
+            auto it = texturesMap.find(fullPath);
+            if (it != texturesMap.end()) {
+                m.ambientMap = &it->second;
+            } else {
+                Texture ambientTexture(fullPath, true);
+                texturesMap[fullPath] = std::move(ambientTexture);
+                m.ambientMap = &texturesMap[fullPath];
+            }
+        }
         if (!material.diffuse_texname.empty()) {
             auto fullPath = root + material.diffuse_texname;
             auto it = texturesMap.find(fullPath);
             if (it != texturesMap.end()) {
                 m.albedoMap = &it->second;
-            } else {
-                Texture albedoTexture(fullPath);
+            }
+            else {
+                Texture albedoTexture(fullPath, true);
                 texturesMap[fullPath] = std::move(albedoTexture);
                 m.albedoMap = &texturesMap[fullPath];
+            }
+            if (!m.ambientMap) {
+                m.ambientMap = m.albedoMap;
+            }
+        }
+        if (!material.specular_texname.empty()) {
+            auto fullPath = root + material.specular_texname;
+            auto it = texturesMap.find(fullPath);
+            if (it != texturesMap.end()) {
+                m.specularMap = &it->second;
+            }
+            else {
+                Texture specularTexture(fullPath);
+                texturesMap[fullPath] = std::move(specularTexture);
+                m.specularMap = &texturesMap[fullPath];
+            }
+        }
+        if (!material.emissive_texname.empty()) {
+            auto fullPath = root + material.emissive_texname;
+            auto it = texturesMap.find(fullPath);
+            if (it != texturesMap.end()) {
+                m.emissionMap = &it->second;
+            }
+            else {
+                Texture emissionTexture(fullPath, true);
+                texturesMap[fullPath] = std::move(emissionTexture);
+                m.emissionMap = &texturesMap[fullPath];
             }
         }
     }
 
+    float_t maxAbsCoord = 0.0f;
     for (const auto &shape : shapes) {
         ObjKey objKey;
         std::vector<float> vertices;
@@ -104,6 +147,9 @@ void Scene::LoadMeshFromObj(const std::string &filename) {
 
                     for (size_t p = 0u; p < 3u; ++p) {
                         vertex[p] = attrib.vertices[3 * objKey.positionIndex + p];
+                        if (std::fabs(vertex[p]) > maxAbsCoord) {
+                            maxAbsCoord = std::fabs(vertex[p]);
+                        }
                     }
 
                     if (objKey.normalIndex != 0xffffffffu) {
@@ -115,6 +161,12 @@ void Scene::LoadMeshFromObj(const std::string &filename) {
                     if (objKey.texcoordsIndex != 0xffffffffu) {
                         for (auto t = 0u; t < 2u; ++t) {
                             vertex[t + 6] = attrib.texcoords[2 * objKey.texcoordsIndex + t];
+                        }
+                        if (invertTexU) {
+                            vertex[0 + 6] = 1.0f - vertex[0 + 6];
+                        }
+                        if (invertTexV) {
+                            vertex[1 + 6] = 1.0f - vertex[1 + 6];
                         }
                     }
 
@@ -143,5 +195,18 @@ void Scene::LoadMeshFromObj(const std::string &filename) {
         std::swap(mesh.indices, indices);
         mesh.index_stride = sizeof(uint32_t);
         mesh.material = material;
+    }
+
+    if (scaleToUnit) {
+        // Scale all model vertices
+        float_t maxAbsCoordInv = 1 / maxAbsCoord;
+        for (auto &mesh : meshes) {
+            for (size_t v = 0; v < mesh.GetVertexCount(); v++) {
+                size_t offset = v * mesh.vertex_stride / sizeof(float_t);
+                mesh.vertices[offset + 0] *= maxAbsCoordInv;
+                mesh.vertices[offset + 1] *= maxAbsCoordInv;
+                mesh.vertices[offset + 2] *= maxAbsCoordInv;
+            }
+        }
     }
 }

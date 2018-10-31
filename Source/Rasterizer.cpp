@@ -5,14 +5,17 @@
 #include <algorithm>
 
 #include "Logger.h"
+#include "Algorithms.h"
 
 Rasterizer::Rasterizer() {
     std::memset(attributeInfos, 0, RASTERIZER_MAX_ATTRIBUTES * sizeof(AttributeInterpolationInfo));
 }
 
-void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, FragmentShader &shader) {
-    if (triangleInfo.numAttributes > RASTERIZER_MAX_ATTRIBUTES) {
-        throw std::runtime_error{"Exceeds maximum number of vertex attributes"};
+void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, PhongFragmentShader &shader) {
+    assert(triangleInfo.numAttributes <= RASTERIZER_MAX_ATTRIBUTES);
+
+    if (triangleInfo.numAttributes > 0) {
+        assert(triangleInfo.v1.attributes && triangleInfo.v2.attributes && triangleInfo.v3.attributes);
     }
 
     Vec2i &x1 = triangleInfo.v1.screenCoords;
@@ -53,6 +56,11 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
         int32_t ycur = x1.y - 1;
         RasterizeTriangleFill(x1, x2, x3,
             [&](int32_t x, int32_t y, int32_t xl, int32_t xr, bool secondHalf, bool swapped) {
+            if (!(x >= int32_t(0) && x < int32_t(target.Width()) &&
+                y >= int32_t(0) && y < int32_t(target.Height()))) {
+                return;
+            }
+
             if (ycur != y) {
                 ycur = y;
                 // Changed to the next row so it is needed to calc new interpolated values on both sides of that row
@@ -89,15 +97,15 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
                 }
             }
 
-            // Copy attributes
-            float_t attributeValues[RASTERIZER_MAX_ATTRIBUTES];
-            for (size_t i = 0, j = depthTarget ? 1 : 0; i < triangleInfo.numAttributes; ++i, ++j) {
-                attributeValues[i] = attributeInfos[j].attributeValue;
-            }
+            if (depthTestPassed) {
+                // Copy attributes
+                float_t attributeValues[RASTERIZER_MAX_ATTRIBUTES];
+                for (size_t i = 0, j = depthTarget ? 1 : 0; i < triangleInfo.numAttributes; ++i, ++j) {
+                    attributeValues[i] = attributeInfos[j].attributeValue;
+                }
 
-            if (depthTestPassed && x >= int32_t(0) && x < int32_t(target.Width()) && 
-                y >= int32_t(0) && y < int32_t(target.Height())) {
-                target.Set(x, y, Vec3f{shader.Call(attributeValues)});
+                Vec3f fragColor{ shader.Call(attributeValues) };
+                target.Set(x, y, fragColor);
             }
 
         });
@@ -135,92 +143,3 @@ void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, T
         break;
     }
 }
-
-void Rasterizer::RasterizeTriangleFill(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleFillCallback &&callback) const{
-    // Slopes by x : dx / dy
-    const float_t dx1 = float_t(x3.x - x1.x) / float_t(x3.y - x1.y);
-    const float_t dx2 = x2.y != x1.y ? float_t(x2.x - x1.x) / float_t(x2.y - x1.y) : 0;
-    const float_t dx3 = x3.y != x2.y ? float_t(x3.x - x2.x) / float_t(x3.y - x2.y) : 0;
-
-    for (auto y = x1.y; y <= x3.y; ++y) {
-        const bool second = y >= x2.y;
-        int32_t xl = static_cast<int32_t>(x1.x + dx1 * (y - x1.y));
-        int32_t xr = static_cast<int32_t>(second ? x2.x + dx3 * (y - x2.y) : x1.x + dx2 * (y - x1.y));
-        bool swapped = false;
-        if (xl > xr) {
-            std::swap(xl, xr);
-            swapped = true;
-        }
-        for (int32_t x = xl; x <= xr; ++x) {
-            callback(x, y, xl, xr, second, swapped);
-        }
-    }
-}
-
-void Rasterizer::RasterizeTriangleLine(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback && callback) const {
-    size_t side = 0;
-    auto lineCallback = [&side, &callback](int32_t x, int32_t y) {
-        callback(x, y, side);
-    };
-    side = 1;
-    LineDDA(x1, x2, lineCallback);
-    side = 2;
-    LineDDA(x2, x3, lineCallback);
-    side = 3;
-    LineDDA(x1, x3, lineCallback);
-}
-
-void Rasterizer::RasterizeTrianglePoint(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback &&callback) const {
-}
-
-void Rasterizer::LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) const {
-    // Degenerated line
-    if (x1.x == x2.x && x1.y == x2.y) {
-        return;
-    }
-
-    // Vertical
-    if (x1.x == x2.x) {
-        for (int32_t y = x1.y; y != x2.y; y += x2.y > x1.y ? 1 : -1) {
-            callback(x1.x, y);
-        }
-        return;
-    }
-
-    // Horizontal
-    if (x1.y == x2.y) {
-        for (int32_t x = x1.x; x != x2.x; x += x2.x > x1.x ? 1 : -1) {
-            callback(x, x1.y);
-        }
-        return;
-    }
-
-    uint32_t xlen = std::abs(x2.x - x1.x);
-    uint32_t ylen = std::abs(x2.y - x1.y);
-
-    // 45 degrees
-    if (xlen == ylen) {
-        for (int32_t x = x1.x, y = x1.y; 
-             x != x2.x && y != x2.y; 
-             x += x2.x > x1.x ? 1 : -1, y += x2.y > x1.y ? 1 : -1) {
-            callback(x, y);
-        }
-        return;
-    }
-
-    uint32_t N = ylen;
-    if (xlen > ylen) {
-        N = xlen;
-    }
-    if (N > 100000) {
-        return;
-    }
-    float_t dx = float_t(x2.x - x1.x) / N;
-    float_t dy = float_t(x2.y - x1.y) / N;
-    for (uint32_t i = 0; i < N + 1; ++i) {
-        callback(int32_t(std::round(x1.x + dx * i)), int32_t(std::round(x1.y + dy * i)));
-    }
-
-}
-
-void Rasterizer::LineBresenham(const Vec2i & x1, const Vec2i & x2, LineCallback && callback) const {}

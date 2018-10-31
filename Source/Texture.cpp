@@ -7,17 +7,28 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-Texture::Texture(const std::string &name, uint32_t width, uint32_t height, size_t numComponents, size_t bytesPerComponent)
+#include "Algorithms.h"
+
+Texture::Texture(const std::string &name, uint32_t width, uint32_t height, size_t numComponents, size_t bytesPerComponent, bool isNormalized)
 	: name(name)
     , width(width)
 	, height(height)
 	, numComponents(numComponents)
 	, bytesPerComponent(bytesPerComponent)
-	, buffer(width * height * numComponents * bytesPerComponent) {}
+    , isNormalized(isNormalized) {
+    buffer.resize(width * height * numComponents * bytesPerComponent, 0);
+    assert(width > 0 && height > 0);
+    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
+    assert(bytesPerComponent == 4 || bytesPerComponent == 8);
+}
 
-Texture::Texture(const std::string &fileName) {
+Texture::Texture(const std::string &fileName, bool isSRGB) {
+    assert(!fileName.empty());
+
+    // Load image from file
     int x, y, n;
-    unsigned char *data = stbi_load(fileName.c_str(), &x, &y, &n, 0);
+    unsigned char *data = nullptr;
+    data = stbi_load(fileName.c_str(), &x, &y, &n, 0);
 
     if (!data) {
         throw std::runtime_error{"Cant load image"};
@@ -30,15 +41,27 @@ Texture::Texture(const std::string &fileName) {
     name = fileName;
     buffer.resize(width * height * numComponents * bytesPerComponent);
 
+    assert(width > 0 && height > 0);
+    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
+
+    // Copy data and transform into normalized [0;1]
     unsigned char *srcPtr = data;
     float_t *dstPtr = reinterpret_cast<float_t*>(buffer.data());
     for (size_t i = 0; i < width * height * numComponents; ++i) {
         *dstPtr++ = (float_t(*srcPtr++) / 255.0f);
     }
     stbi_image_free(data);
+
+    isNormalized = true;
+
+    // Decoding gamma if needed
+    if (isSRGB) {
+        GammaCorrection(*this, 2.2f);
+    }
 }
 
 void Texture::Clear(const void *clearValues) {
+    assert(clearValues);
     for (size_t j = 0; j < height; j++) {
         for (size_t i = 0; i < width; i++) {
             Set(i, j, clearValues);
@@ -47,40 +70,62 @@ void Texture::Clear(const void *clearValues) {
 }
 
 void Texture::Set(size_t x, size_t y, size_t component, const void *value) {
-	auto i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+    assert(component >= 0 && component < numComponents);
+    assert(value);
+
+    size_t i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
     assert(i < buffer.size());
-	std::memcpy(&buffer[i], value, bytesPerComponent);
+
+    float_t v = *((const float_t*)value);
+    if (isNormalized) {
+        v = Clamp(v, 0.0f, 1.0f);
+    }
+
+	std::memcpy(&buffer[i], &v, bytesPerComponent);
 }
 
 void Texture::Set(size_t x, size_t y, const void *values) {
-    auto i = (y * width + x) * (numComponents * bytesPerComponent);
+    assert(values);
+
+    size_t i = (y * width + x) * (numComponents * bytesPerComponent);
     assert(i < buffer.size());
-    std::memcpy(&buffer[i], values, bytesPerComponent * bytesPerComponent);
+
+    if (isNormalized) {
+        for (size_t i = 0; i < numComponents; i++) {
+            float_t *ptr = (float_t*)((char*)values + i * bytesPerComponent);
+            *ptr = Clamp(*ptr, 0.0f, 1.0f);
+        }
+    }
+
+    std::memcpy(&buffer[i], values, numComponents * bytesPerComponent);
 }
 
 void Texture::Set(size_t x, size_t y, const Vec3f &value) {
-	if (numComponents < 3) {
-		throw std::logic_error("Must be at least 3 components texture");
-	}
+    assert(numComponents >= 3);
     Set(x, y, &value);
 }
 
 void Texture::Set(size_t x, size_t y, const Vec4f &value) {
-	if (numComponents < 4) {
-		throw std::logic_error("Must be at least 4 components texture");
-	}
+    assert(numComponents >= 4);
     Set(x, y, &value);
 }
 
 void Texture::Get(size_t x, size_t y, size_t component, void *outValue) const {
-    auto i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+    assert(component >= 0 && component < numComponents);
+    assert(outValue);
+
+    size_t i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
     assert(i < buffer.size());
+
     *((float*)outValue) = *((float*)&buffer[i]);
 }
 
 void Texture::Get(size_t x, size_t y, void *outValues) const {
-    auto i = (y * width + x) * (numComponents * bytesPerComponent);
+    assert(outValues);
+
+    size_t i = (y * width + x) * (numComponents * bytesPerComponent);
     assert(i < buffer.size());
+
     std::memcpy(outValues, &buffer[i], numComponents * bytesPerComponent);
 }
 
@@ -119,9 +164,33 @@ void Texture::SaveBmp(const std::string &fileName) const {
 }
 
 void Texture::Sample(float_t u, float_t v, void *outValue) const {
+    assert(outValue);
+
+    /*u = Clamp(u, 0.0f, 1.0f);
+    v = Clamp(v, 0.0f, 1.0f);*/
+
+    u = u - int(u);
+    v = v - int(v);
+    if (u < 0) {
+        u = 1.0f + u;
+    }
+    if (v < 0) {
+        v = 1.0f + v;
+    }
+
     size_t x = static_cast<size_t>(u * (width - 1));
     size_t y = static_cast<size_t>(v * (height - 1));
     Get(x, y, outValue);
+}
+
+void Texture::CopyTo(Texture &dst) const {
+    assert(IsCompatibleWith(dst));
+    dst.buffer = buffer;
+}
+
+void Texture::MoveTo(Texture &dst) {
+    assert(IsCompatibleWith(dst));
+    dst.buffer = std::move(buffer);
 }
 
 std::ostream &operator<<(std::ostream &os, const Texture &obj) {

@@ -1,0 +1,2635 @@
+     1	#include "Algorithms.h"
+     2	
+     3	#include <cassert>
+     4	
+     5	/* Rasterization algorithms. */
+     6	
+     7	// Side 1 from v1 - v3
+     8	// Side 2 from v1 - v2
+     9	// Side 3 from v2 - v3
+    10	
+    11	void RasterizeTriangleFill(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleFillCallback &&callback) {
+    12	    // Slopes by x : dx / dy
+    13	    const float_t dx1 = float_t(x3.x - x1.x) / float_t(x3.y - x1.y);
+    14	    const float_t dx2 = x2.y != x1.y ? float_t(x2.x - x1.x) / float_t(x2.y - x1.y) : 0;
+    15	    const float_t dx3 = x3.y != x2.y ? float_t(x3.x - x2.x) / float_t(x3.y - x2.y) : 0;
+    16	
+    17	    for (auto y = x1.y; y <= x3.y; ++y) {
+    18	        const bool second = y >= x2.y;
+    19	        int32_t xl = static_cast<int32_t>(x1.x + dx1 * (y - x1.y));
+    20	        int32_t xr = static_cast<int32_t>(second ? x2.x + dx3 * (y - x2.y) : x1.x + dx2 * (y - x1.y));
+    21	        bool swapped = false;
+    22	        if (xl > xr) {
+    23	            std::swap(xl, xr);
+    24	            swapped = true;
+    25	        }
+    26	        for (int32_t x = xl; x <= xr; ++x) {
+    27	            callback(x, y, xl, xr, second, swapped);
+    28	        }
+    29	    }
+    30	}
+    31	
+    32	
+    33	void RasterizeTriangleLine(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback && callback) {
+    34	    size_t side = 0;
+    35	    auto lineCallback = [&side, &callback](int32_t x, int32_t y) {
+    36	        callback(x, y, side);
+    37	    };
+    38	    side = 1;
+    39	    LineDDA(x1, x2, lineCallback);
+    40	    side = 2;
+    41	    LineDDA(x2, x3, lineCallback);
+    42	    side = 3;
+    43	    LineDDA(x1, x3, lineCallback);
+    44	}
+    45	
+    46	void RasterizeTrianglePoint(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback &&callback) {}
+    47	
+    48	void LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) {
+    49	    // Degenerated line
+    50	    if (x1.x == x2.x && x1.y == x2.y) {
+    51	        return;
+    52	    }
+    53	
+    54	    // Vertical
+    55	    if (x1.x == x2.x) {
+    56	        for (int32_t y = x1.y; y != x2.y; y += x2.y > x1.y ? 1 : -1) {
+    57	            callback(x1.x, y);
+    58	        }
+    59	        return;
+    60	    }
+    61	
+    62	    // Horizontal
+    63	    if (x1.y == x2.y) {
+    64	        for (int32_t x = x1.x; x != x2.x; x += x2.x > x1.x ? 1 : -1) {
+    65	            callback(x, x1.y);
+    66	        }
+    67	        return;
+    68	    }
+    69	
+    70	    uint32_t xlen = std::abs(x2.x - x1.x);
+    71	    uint32_t ylen = std::abs(x2.y - x1.y);
+    72	
+    73	    // 45 degrees
+    74	    if (xlen == ylen) {
+    75	        for (int32_t x = x1.x, y = x1.y;
+    76	             x != x2.x && y != x2.y;
+    77	             x += x2.x > x1.x ? 1 : -1, y += x2.y > x1.y ? 1 : -1) {
+    78	            callback(x, y);
+    79	        }
+    80	        return;
+    81	    }
+    82	
+    83	    uint32_t N = ylen;
+    84	    if (xlen > ylen) {
+    85	        N = xlen;
+    86	    }
+    87	    if (N > 100000) {
+    88	        return;
+    89	    }
+    90	    float_t dx = float_t(x2.x - x1.x) / N;
+    91	    float_t dy = float_t(x2.y - x1.y) / N;
+    92	    for (uint32_t i = 0; i < N + 1; ++i) {
+    93	        callback(int32_t(std::round(x1.x + dx * i)), int32_t(std::round(x1.y + dy * i)));
+    94	    }
+    95	
+    96	}
+    97	
+    98	void LineBresenham(const Vec2i & x1, const Vec2i & x2, LineCallback && callback) {}
+    99	
+   100	void GammaCorrection(Texture &target, float_t gamma) {
+   101	    // Gamma correction
+   102	    for (size_t y = 0; y < target.Height(); ++y) {
+   103	        for (size_t x = 0; x < target.Width(); ++x) {
+   104	            Vec3f color{};
+   105	            target.Get(x, y, &color);
+   106	            color = Pow(color, gamma);
+   107	            target.Set(x, y, &color);
+   108	        }
+   109	    }
+   110	}
+   111	
+   112	void ReinhardTonemapping(Texture &target) {
+   113	    for (size_t y = 0; y < target.Height(); ++y) {
+   114	        for (size_t x = 0; x < target.Width(); ++x) {
+   115	            Vec3f color{};
+   116	            target.Get(x, y, &color);
+   117	            color = color / (color + Vec3f{ 1.0f });
+   118	            target.Set(x, y, &color);
+   119	        }
+   120	    }
+   121	}
+   122	
+   123	void Blur(Texture &target, size_t iterations) {
+   124	    assert(iterations >= 1);
+   125	
+   126	    Texture temp{"BlurTemp", target.Width(), target.Height(), target.GetNumComponents(), target.GetBytesPerComponent(), false};
+   127	
+   128	    Texture *A = &target;
+   129	    Texture *B = &temp;
+   130	
+   131	    for (size_t i = 0; i < iterations; i++) {
+   132	        for (size_t y = 1; y < target.Height() - 1; ++y) {
+   133	            for (size_t x = 1; x < target.Width() - 1; ++x) {
+   134	                Vec3f result{ 0.0f };
+   135	                for (size_t j = 0; j < 3; ++j) {
+   136	                    for (size_t i = 0; i < 3; ++i) {
+   137	                        Vec3f sample{ 0.0f };
+   138	                        A->Get(x + i - 1, y + j - 1, &sample);
+   139	                        result += sample;
+   140	                    }
+   141	                }
+   142	                result /= 9.0f;
+   143	                B->Set(x, y, &result);
+   144	            }
+   145	        }
+   146	        std::swap(A, B);
+   147	    }
+   148	    
+   149	    if (&target != A) {
+   150	        temp.MoveTo(target);
+   151	    }
+   152	}
+   153	
+   154	void GaussianBlurInDirection(const Texture &src, Texture &dst, const std::vector<float_t> &kernel, bool vertical) {
+   155	    assert(src.IsCompatibleWith(dst));
+   156	
+   157	    size_t offset = kernel.size() - 1;
+   158	    for (size_t y = offset; y < src.Height() - offset; ++y) {
+   159	        for (size_t x = offset; x < src.Width() - offset; ++x) {
+   160	
+   161	            Vec3f result{ 0.0f };
+   162	
+   163	            for (size_t i = 0; i < kernel.size(); ++i) {
+   164	
+   165	                Vec3f sample{ 0.0f };
+   166	
+   167	                if (!vertical) {
+   168	                    src.Get(x - i, y, &sample);
+   169	                    result += sample * kernel[i];
+   170	                    src.Get(x + i, y, &sample);
+   171	                    result += sample * kernel[i];
+   172	                } else {
+   173	                    src.Get(x, y - i, &sample);
+   174	                    result += sample * kernel[i];
+   175	                    src.Get(x, y - i, &sample);
+   176	                    result += sample * kernel[i];
+   177	                }
+   178	            }
+   179	
+   180	            dst.Set(x, y, &result);
+   181	        }
+   182	    }
+   183	}
+   184	
+   185	void GaussianBlur(Texture &target, const std::vector<float_t> &kernel, size_t iterations) {
+   186	    assert(iterations >= 1);
+   187	    assert(kernel.size() > 1);
+   188	
+   189	    Texture temp{ "GaussianBlurTemp", target.Width(), target.Height(), target.GetNumComponents(), target.GetBytesPerComponent(), false };
+   190	
+   191	    for (size_t i = 0; i < iterations; ++i) {
+   192	        GaussianBlurInDirection(target, temp, kernel, false);
+   193	        GaussianBlurInDirection(temp, target, kernel, true);
+   194	    }
+   195	}
+   196	#pragma once
+   197	
+   198	#include <functional>
+   199	
+   200	#include "Types.h"
+   201	#include "Math.h"
+   202	#include "Texture.h"
+   203	
+   204	/* Rasterization algorithms. */
+   205	
+   206	using TriangleFillCallback = std::function<void(int32_t, int32_t, int32_t, int32_t, bool, bool)>;
+   207	using TriangleLineCallback = std::function<void(int32_t, int32_t, size_t)>;
+   208	using LineCallback = std::function<void(int32_t, int32_t)>;
+   209	
+   210	void LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback);
+   211	void LineBresenham(const Vec2i & x1, const Vec2i & x2, LineCallback && callback);
+   212	void RasterizeTrianglePoint(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback &&callback);
+   213	void RasterizeTriangleLine(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback && callback);
+   214	void RasterizeTriangleFill(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleFillCallback &&callback);
+   215	
+   216	/* Postprocessing algorithms. */
+   217	
+   218	void GammaCorrection(Texture &target, float_t gamma);
+   219	void ReinhardTonemapping(Texture &target);
+   220	void Blur(Texture &target, size_t iterations = 1);
+   221	void GaussianBlur(Texture &target, const std::vector<float_t> &kernel, size_t iterations);#include "ForwardRenderer.h"
+   222	
+   223	#include "Math.h"
+   224	
+   225	std::string SaveTexture(const Texture &texture) {
+   226	    auto fileName = texture.Name() + ".bmp";
+   227	    texture.SaveBmp(fileName);
+   228	    return fileName;
+   229	}
+   230	
+   231	Texture& ForwardRenderer::Render(const Scene &scene, const Viewport &viewport) {
+   232	    framebuffer = std::make_unique<Texture>("FrameBuffer", width, height, 3, sizeof(float_t), false);
+   233	    depth = std::make_unique<Texture>("Depth", width, height, 1, sizeof(float_t));
+   234	
+   235	    float_t clearValue[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+   236	    //frameBuffer.Clear(clearValue);
+   237	
+   238	    float_t depthClearValue[] = { 1.0f };
+   239	    depth->Clear(depthClearValue);
+   240	
+   241	    Mat4f projection;
+   242	    Mat4f view;
+   243	    Mat4f model;
+   244	
+   245	    Vec3f viewPosition{ 1.0f, 1.0f, 1.0f };
+   246	    view.LookAt(viewPosition, { 0.0f, 0.0f, 0.f }, { 0, 1, 0 });
+   247	
+   248	    projection.PerspectiveProjection(45.0f, framebuffer->GetAspectRatio(), 0.01f, 0.1f);
+   249	
+   250	    vertexShader.model = model;
+   251	    vertexShader.view = view;
+   252	    vertexShader.projection = projection;
+   253	
+   254	    fragmentShader.viewPosition = viewPosition;
+   255	    fragmentShader.lights = &scene.lights;
+   256	
+   257	    pipeline.RenderScene(scene, *framebuffer, depth.get(), vertexShader, fragmentShader, viewport);
+   258	
+   259	    SaveTexture(*framebuffer);
+   260	    SaveTexture(*depth);
+   261	
+   262	    return *framebuffer;
+   263	}
+   264	#pragma once
+   265	
+   266	#include <memory>
+   267	
+   268	#include "Texture.h"
+   269	#include "Pipeline.h"
+   270	#include "Shader.h"
+   271	#include "Scene.h"
+   272	
+   273	class ForwardRenderer {
+   274	public:
+   275	    ForwardRenderer(size_t width, size_t height) : width(width), height(height) {}
+   276	
+   277	    Texture& Render(const Scene &scene, const Viewport &viewport);
+   278	
+   279	private:
+   280	    size_t width;
+   281	    size_t height;
+   282	
+   283	    // Render targets
+   284	    std::unique_ptr<Texture> framebuffer;
+   285	    std::unique_ptr<Texture> depth;
+   286	
+   287	    // Pipeline
+   288	    Pipeline pipeline;
+   289	
+   290	    // Shaders
+   291	    BaseVertexShader vertexShader;
+   292	    PhongFragmentShader fragmentShader;
+   293	};#pragma once
+   294	
+   295	#include <iostream>
+   296	
+   297	#define LOG(msg) std::cout << msg << std::endl;#include <iostream>
+   298	
+   299	#include "Logger.h"
+   300	#include "ForwardRenderer.h"
+   301	
+   302	#define WIDTH    (1600)
+   303	#define HEIGHT   (1200)
+   304	
+   305	// TODO: Comments
+   306	// TODO: Blurs
+   307	// TODO: Bump mapping
+   308	// TODO: Normal mapping
+   309	// TODO: Paralax mapping
+   310	// TODO: Bloom
+   311	// TODO: MRT
+   312	// TODO: Shadow map
+   313	// TODO: SSAO
+   314	// TODO: SSR
+   315	// TODO: Texture filtering
+   316	// TODO: Skybox
+   317	// TODO: Spot light
+   318	// TODO: PBR
+   319	// TODO: Simple scene graph
+   320	// TODO: Camera
+   321	// TODO: Render base class
+   322	// TODO: Deferred renderer
+   323	// TODO: Transparency
+   324	// TODO: Move math vec operators and functions into single place
+   325	// TODO: Move lighting algrorithms into Algorithms.cpp
+   326	// TODO: Gaussian blur bug duplicated central pixel
+   327	// TODO: Measure time
+   328	
+   329	int main() {
+   330	    // Setup scene
+   331	
+   332	    Scene scene;
+   333	
+   334	    // Geometry
+   335	
+   336	    //scene.LoadMeshFromObj("Data/Cube/cube.obj", false);
+   337	    //scene.LoadMeshFromObj("Data/Sponza/sponza.obj");
+   338	    //scene.LoadMeshFromObj("Data/living_room/living_room.obj");
+   339	    //scene.LoadMeshFromObj("Data/Car/Car.obj");
+   340	    //scene.LoadMeshFromObj("Data\\CornellBox\\cornellbox.obj");
+   341	    scene.LoadMeshFromObj("Data/aston-martin/source/AM-01/AM-01.obj", true, false, true);
+   342	
+   343	    // Lights
+   344	
+   345	    Light light;
+   346	    size_t numLights = 4;
+   347	    float_t R = 1.0f;
+   348	    for (size_t i = 0; i < numLights; i++) {
+   349	        light.lightType = LightType::Omni;
+   350	        light.position = { R * std::cosf(2 * float_t(M_PI) / numLights * i), 0.5f, R * std::sinf(2 * float_t(M_PI) / numLights * i) };
+   351	        light.ambient = { 0.1f, 0.1f, 0.1f };
+   352	        light.diffuse = { 1.0f, 1.0f, 1.0f };
+   353	        //light.diffuse = { RAND_RANGE(0.1f, 1.0f), RAND_RANGE(0.1f, 1.0f), RAND_RANGE(0.1f, 1.0f) };
+   354	        light.specular = { 1.0f, 1.0f, 1.0f };
+   355	        light.linear = 0.1f;
+   356	        light.quadratic = 0.03f;
+   357	        scene.lights.push_back(light);
+   358	    }
+   359	
+   360	    light.lightType = LightType::Directional;
+   361	    light.direction = {0.0f, -1.0f, -1.0f};
+   362	    light.ambient = { 0.1f, 0.1f, 0.1f };
+   363	    light.diffuse = { 30.0f, 30.0f, 30.0f };
+   364	    light.specular = { 1.0f, 1.0f, 1.0f };
+   365	    //scene.lights.push_back(light);
+   366	
+   367	    Viewport viewport;
+   368	    viewport.x = 0;
+   369	    viewport.y = 0;
+   370	    viewport.width = WIDTH;
+   371	    viewport.height = HEIGHT;
+   372	
+   373	    ForwardRenderer renderer{WIDTH, HEIGHT};
+   374	    Texture &result = renderer.Render(scene, viewport);
+   375	
+   376		system((result.Name() + ".bmp").c_str());
+   377	
+   378		std::cin.get();
+   379		return 0;
+   380	}#pragma once
+   381	
+   382	#include <ostream>
+   383	
+   384	#include "Math.h"
+   385	#include "Vec3.h"
+   386	
+   387	template <typename T>
+   388	struct Mat3 {
+   389		union {
+   390	        struct { T a11, a12, a13, a21, a22, a23, a31, a32, a33; };
+   391			T v[9];
+   392	        T vv[3][3];
+   393		};
+   394	
+   395		Mat3() = default;
+   396	    Mat3(T s) {}
+   397	    Mat3(const T *v) {}
+   398	    //Mat3(const Vec4<T> &v) : Mat3(&v.x) {}
+   399	
+   400	    //const Mat3 &operator=(const Vec4<T> &v);
+   401	
+   402	    void Clear() {}
+   403	    void Identity() {}  
+   404	    void Set(T s) {}
+   405	    void Set(const T *v) {}
+   406	
+   407	    void Add(const Mat3 &other) {}
+   408	    Mat3 AddR(const Mat3 &other) const {}
+   409	    void Sub(const Mat3 &other) {}
+   410	    Mat3 SubR(const Mat3 &other) const {}
+   411	    void Scale(T s) {}
+   412	    Mat3 ScaleR(T s) const {}
+   413	    void AddScaled(const Mat3 &other, T s) {}
+   414	    Mat3 AddScaledR(const Mat3 &other, T s) const {}
+   415	
+   416	    void Transpose() {}
+   417	    void Invert() {}
+   418	
+   419	    Vec3<T> MultTransposed(const Vec3<T> &vec) {}
+   420	    void MultLeft(const Mat3 &other) {}
+   421	
+   422	    void Rotate(float angle, const Vec3<T> &axis) {}
+   423	
+   424	
+   425	    Mat3 operator~() const {}
+   426	};
+   427	
+   428	
+   429	
+   430	//template <typename T>
+   431	//std::ostream &operator<<(std::ostream &os, const Mat3<T> &obj) {
+   432	//	return os << "(" << obj.x << ", " << obj.y << ", " << obj.z << ")";
+   433	//}
+   434	#pragma once
+   435	
+   436	#include <ostream>
+   437	
+   438	#include "Math.h"
+   439	#include "Vec4.h"
+   440	
+   441	#define MAT4_NUM_ELEMENTS   (16)
+   442	
+   443	template <typename T>
+   444	struct Mat4 {
+   445		union {
+   446	        struct { T a11, a12, a13, a14, 
+   447	                   a21, a22, a23, a24, 
+   448	                   a31, a32, a33, a34, 
+   449	                   a41, a42, a43, a44; };
+   450			T v[16];
+   451	        T vv[4][4];
+   452		};
+   453	
+   454	    Mat4();
+   455	    Mat4(T s) {}
+   456	    Mat4(const T *v) {}
+   457	
+   458	    void Clear();
+   459	    void Identity();
+   460	    void Set(T s) {}
+   461	    void Set(const T *v) {}
+   462	
+   463	    void Add(const Mat4 &other) {}
+   464	    Mat4 AddR(const Mat4 &other) const {}
+   465	    void Sub(const Mat4 &other) {}
+   466	    Mat4 SubR(const Mat4 &other) const {}
+   467	    void Scale(T s) {}
+   468	    Mat4 ScaleR(T s) const {}
+   469	    void AddScaled(const Mat4 &other, T s) {}
+   470	    Mat4 AddScaledR(const Mat4 &other, T s) const {}
+   471	
+   472	    void Transpose() {}
+   473	    void Invert() {}
+   474	
+   475	    Vec3<T> MultTransposed(const Vec3<T> &vec) {}
+   476	    void MultLeft(const Mat4 &other) {}
+   477	
+   478	    void Rotate(float angle, const Vec3<T> &axis) {}
+   479	
+   480	
+   481	    Mat4 operator~() const {}
+   482	
+   483	    void PerspectiveProjection(T fov, T aspect, T znear, T zfar);
+   484	    void LookAt(const Vec3<T> &eye, const Vec3<T> &target, const Vec3<T> &up);
+   485	};
+   486	
+   487	template <typename T>
+   488	Mat4<T>::Mat4() {
+   489	    Identity();
+   490	}
+   491	
+   492	//
+   493	//
+   494	//Mat4<T>::Mat4<T>(float s) {
+   495	//    m_data[0][0] = s; m_data[0][1] = s; m_data[0][2] = s;
+   496	//    m_data[1][0] = s; m_data[1][1] = s; m_data[1][2] = s;
+   497	//    m_data[2][0] = s; m_data[2][1] = s; m_data[2][2] = s;
+   498	//}
+   499	//
+   500	//
+   501	//Mat4<T>::Mat4<T>(float **v) {
+   502	//    m_data[0][0] = v[0][0]; m_data[0][1] = v[0][1]; m_data[0][2] = v[0][2];
+   503	//    m_data[1][0] = v[1][0]; m_data[1][1] = v[1][1]; m_data[1][2] = v[1][2];
+   504	//    m_data[2][0] = v[2][0]; m_data[2][1] = v[2][1]; m_data[2][2] = v[2][2];
+   505	//}
+   506	
+   507	template <typename T>
+   508	void Mat4<T>::Clear() {
+   509	    std::memset(v, 0, MAT4_NUM_ELEMENTS * sizeof(T));
+   510	}
+   511	
+   512	template <typename T>
+   513	void Mat4<T>::Identity() {
+   514	    Clear();
+   515	    for (size_t i = 0; i < 4; i++) {
+   516	        vv[i][i] = T(1);
+   517	    }
+   518	}
+   519	
+   520	//void Mat4<T>::add(const Mat4<T> &other) {
+   521	//    m_data[0][0] += other.m_data[0][0]; m_data[0][1] += other.m_data[0][1]; m_data[0][2] += other.m_data[0][2];
+   522	//    m_data[1][0] += other.m_data[1][0]; m_data[1][1] += other.m_data[1][1]; m_data[1][2] += other.m_data[1][2];
+   523	//    m_data[2][0] += other.m_data[2][0]; m_data[2][1] += other.m_data[2][1]; m_data[2][2] += other.m_data[2][2];
+   524	//}
+   525	//
+   526	//
+   527	//Mat4<T> Mat4<T>::addR(const Mat4<T> &other) {
+   528	//    Mat4<T> res;
+   529	//
+   530	//    res.m_data[0][0] = m_data[0][0] + other.m_data[0][0];
+   531	//    res.m_data[0][1] = m_data[0][1] + other.m_data[0][1];
+   532	//    res.m_data[0][2] = m_data[0][2] + other.m_data[0][2];
+   533	//
+   534	//    res.m_data[1][0] = m_data[1][0] + other.m_data[1][0];
+   535	//    res.m_data[1][1] = m_data[1][1] + other.m_data[1][1];
+   536	//    res.m_data[1][2] = m_data[1][2] + other.m_data[1][2];
+   537	//
+   538	//    res.m_data[2][0] = m_data[2][0] + other.m_data[2][0];
+   539	//    res.m_data[2][1] = m_data[2][1] + other.m_data[2][1];
+   540	//    res.m_data[2][2] = m_data[2][2] + other.m_data[2][2];
+   541	//
+   542	//    return res;
+   543	//}
+   544	//
+   545	//
+   546	//void Mat4<T>::sub(const Mat4<T> &other) {
+   547	//    m_data[0][0] -= other.m_data[0][0]; m_data[0][1] -= other.m_data[0][1]; m_data[0][2] -= other.m_data[0][2];
+   548	//    m_data[1][0] -= other.m_data[1][0]; m_data[1][1] -= other.m_data[1][1]; m_data[1][2] -= other.m_data[1][2];
+   549	//    m_data[2][0] -= other.m_data[2][0]; m_data[2][1] -= other.m_data[2][1]; m_data[2][2] -= other.m_data[2][2];
+   550	//}
+   551	//
+   552	//
+   553	//Mat4<T> Mat4<T>::subR(const Mat4<T> &other) {
+   554	//    Mat4<T> res;
+   555	//
+   556	//    res.m_data[0][0] = m_data[0][0] - other.m_data[0][0];
+   557	//    res.m_data[0][1] = m_data[0][1] - other.m_data[0][1];
+   558	//    res.m_data[0][2] = m_data[0][2] - other.m_data[0][2];
+   559	//
+   560	//    res.m_data[1][0] = m_data[1][0] - other.m_data[1][0];
+   561	//    res.m_data[1][1] = m_data[1][1] - other.m_data[1][1];
+   562	//    res.m_data[1][2] = m_data[1][2] - other.m_data[1][2];
+   563	//
+   564	//    res.m_data[2][0] = m_data[2][0] - other.m_data[2][0];
+   565	//    res.m_data[2][1] = m_data[2][1] - other.m_data[2][1];
+   566	//    res.m_data[2][2] = m_data[2][2] - other.m_data[2][2];
+   567	//
+   568	//    return res;
+   569	//}
+   570	//
+   571	//
+   572	//void Mat4<T>::scale(float s) {
+   573	//    m_data[0][0] *= s; m_data[0][1] *= s; m_data[0][2] *= s;
+   574	//    m_data[1][0] *= s; m_data[1][1] *= s; m_data[1][2] *= s;
+   575	//    m_data[2][0] *= s; m_data[2][1] *= s; m_data[2][2] *= s;
+   576	//}
+   577	//
+   578	//
+   579	//Mat4<T> Mat4<T>::scaleR(float s) {
+   580	//    Mat4<T> res;
+   581	//
+   582	//    res.m_data[0][0] = s * m_data[0][0];
+   583	//    res.m_data[0][1] = s * m_data[0][1];
+   584	//    res.m_data[0][2] = s * m_data[0][2];
+   585	//
+   586	//    res.m_data[1][0] = s * m_data[1][0];
+   587	//    res.m_data[1][1] = s * m_data[1][1];
+   588	//    res.m_data[1][2] = s * m_data[1][2];
+   589	//
+   590	//    res.m_data[2][0] = s * m_data[2][0];
+   591	//    res.m_data[2][1] = s * m_data[2][1];
+   592	//    res.m_data[2][2] = s * m_data[2][2];
+   593	//
+   594	//    return res;
+   595	//}
+   596	//
+   597	//
+   598	//void Mat4<T>::addScaled(const Mat4<T> &other, float s) {
+   599	//    m_data[0][0] += s * other.m_data[0][0]; m_data[0][1] += s * other.m_data[0][1]; m_data[0][2] += s * other.m_data[0][2];
+   600	//    m_data[1][0] += s * other.m_data[1][0]; m_data[1][1] += s * other.m_data[1][1]; m_data[1][2] += s * other.m_data[1][2];
+   601	//    m_data[2][0] += s * other.m_data[2][0]; m_data[2][1] += s * other.m_data[2][1]; m_data[2][2] += s * other.m_data[2][2];
+   602	//}
+   603	//
+   604	//
+   605	//Mat4<T> Mat4<T>::addScaledR(const Mat4<T> &other, float s) {
+   606	//    Mat4<T> res;
+   607	//
+   608	//    res.m_data[0][0] = m_data[0][0] + s * other.m_data[0][0];
+   609	//    res.m_data[0][1] = m_data[0][1] + s * other.m_data[0][1];
+   610	//    res.m_data[0][2] = m_data[0][2] + s * other.m_data[0][2];
+   611	//
+   612	//    res.m_data[1][0] = m_data[1][0] + s * other.m_data[1][0];
+   613	//    res.m_data[1][1] = m_data[1][1] + s * other.m_data[1][1];
+   614	//    res.m_data[1][2] = m_data[1][2] + s * other.m_data[1][2];
+   615	//
+   616	//    res.m_data[2][0] = m_data[2][0] + s * other.m_data[2][0];
+   617	//    res.m_data[2][1] = m_data[2][1] + s * other.m_data[2][1];
+   618	//    res.m_data[2][2] = m_data[2][2] + s * other.m_data[2][2];
+   619	//
+   620	//    return res;
+   621	//}
+   622	//
+   623	//
+   624	//void Mat4<T>::transpose() {
+   625	//    float temp;
+   626	//    for (int i = 0; i < 3; i++) {
+   627	//        for (int j = 0; j < 3; j++) {
+   628	//            temp = m_data[i][j];
+   629	//            m_data[i][j] = m_data[j][i];
+   630	//            m_data[j][i] = temp;
+   631	//        }
+   632	//    }
+   633	//}
+   634	//
+   635	//
+   636	//lpVec3 Mat4<T>::multTransposed(const lpVec3 &vec) {
+   637	//    lpVec3 res;
+   638	//
+   639	//    res.m_x = m_data[0][0] * vec.m_x + m_data[1][0] * vec.m_y + m_data[2][0] * vec.m_z;
+   640	//    res.m_y = m_data[0][1] * vec.m_x + m_data[1][1] * vec.m_y + m_data[2][1] * vec.m_z;
+   641	//    res.m_z = m_data[0][2] * vec.m_x + m_data[1][2] * vec.m_y + m_data[2][2] * vec.m_z;
+   642	//
+   643	//    return res;
+   644	//}
+   645	//
+   646	//
+   647	//void Mat4<T>::multLeft(const Mat4<T> &other) {
+   648	//    float m00 = other.m_data[0][0] * m_data[0][0] + other.m_data[0][1] * m_data[1][0] + other.m_data[0][2] * m_data[2][0];
+   649	//    float m01 = other.m_data[0][0] * m_data[0][1] + other.m_data[0][1] * m_data[1][1] + other.m_data[0][2] * m_data[2][1];
+   650	//    float m02 = other.m_data[0][0] * m_data[0][2] + other.m_data[0][1] * m_data[1][2] + other.m_data[0][2] * m_data[2][2];
+   651	//
+   652	//    float m10 = other.m_data[1][0] * m_data[0][0] + other.m_data[1][1] * m_data[1][0] + other.m_data[1][2] * m_data[2][0];
+   653	//    float m11 = other.m_data[1][0] * m_data[0][1] + other.m_data[1][1] * m_data[1][1] + other.m_data[1][2] * m_data[2][1];
+   654	//    float m12 = other.m_data[1][0] * m_data[0][2] + other.m_data[1][1] * m_data[1][2] + other.m_data[1][2] * m_data[2][2];
+   655	//
+   656	//    float m20 = other.m_data[2][0] * m_data[0][0] + other.m_data[2][1] * m_data[1][0] + other.m_data[2][2] * m_data[2][0];
+   657	//    float m21 = other.m_data[2][0] * m_data[0][1] + other.m_data[2][1] * m_data[1][1] + other.m_data[2][2] * m_data[2][1];
+   658	//    float m22 = other.m_data[2][0] * m_data[0][2] + other.m_data[2][1] * m_data[1][2] + other.m_data[2][2] * m_data[2][2];
+   659	//
+   660	//    m_data[0][0] = m00; m_data[0][1] = m01; m_data[0][2] = m02;
+   661	//    m_data[1][0] = m10; m_data[1][1] = m11; m_data[1][2] = m12;
+   662	//    m_data[2][0] = m20; m_data[2][1] = m21; m_data[2][2] = m22;
+   663	//}
+   664	//
+   665	//
+   666	//void Mat4<T>::rotate(float angle, const lpVec3 &axis) {
+   667	//    float c = cosf(angle);
+   668	//    float s = sinf(angle);
+   669	//    float c1 = 1.0f - c;
+   670	//    float u1 = axis.m_x;
+   671	//    float u2 = axis.m_y;
+   672	//    float u3 = axis.m_z;
+   673	//    float u12 = u1 * u2;
+   674	//    float u13 = u1 * u3;
+   675	//    float u23 = u2 * u3;
+   676	//
+   677	//    Mat4<T> rm;
+   678	//    rm.m_data[0][0] = c1 * u1 * u1 + c;	 rm.m_data[0][1] = c1 * u12 - s * u3; rm.m_data[0][2] = c1 * u13 + s * u2;
+   679	//    rm.m_data[1][0] = c1 * u12 + s * u3; rm.m_data[1][1] = c1 * u2 * u2 + c;  rm.m_data[1][2] = c1 * u23 - s * u1;
+   680	//    rm.m_data[2][0] = c1 * u13 - s * u2; rm.m_data[2][1] = c1 * u23 + s * u1; rm.m_data[2][2] = c1 * u3 * u3 + c;
+   681	//
+   682	//    multLeft(rm);
+   683	//}
+   684	//
+   685	//
+   686	//Mat4<T> Mat4<T>::operator+(const Mat4<T> &other) {
+   687	//    Mat4<T> res;
+   688	//
+   689	//    res.m_data[0][0] = m_data[0][0] + other.m_data[0][0];
+   690	//    res.m_data[0][1] = m_data[0][1] + other.m_data[0][1];
+   691	//    res.m_data[0][2] = m_data[0][2] + other.m_data[0][2];
+   692	//
+   693	//    res.m_data[1][0] = m_data[1][0] + other.m_data[1][0];
+   694	//    res.m_data[1][1] = m_data[1][1] + other.m_data[1][1];
+   695	//    res.m_data[1][2] = m_data[1][2] + other.m_data[1][2];
+   696	//
+   697	//    res.m_data[2][0] = m_data[2][0] + other.m_data[2][0];
+   698	//    res.m_data[2][1] = m_data[2][1] + other.m_data[2][1];
+   699	//    res.m_data[2][2] = m_data[2][2] + other.m_data[2][2];
+   700	//
+   701	//    return res;
+   702	//}
+   703	//
+   704	//
+   705	//void Mat4<T>::operator +=(const Mat4<T> &other) {
+   706	//    m_data[0][0] += other.m_data[0][0]; m_data[0][1] += other.m_data[0][1]; m_data[0][2] += other.m_data[0][2];
+   707	//    m_data[1][0] += other.m_data[1][0]; m_data[1][1] += other.m_data[1][1]; m_data[1][2] += other.m_data[1][2];
+   708	//    m_data[2][0] += other.m_data[2][0]; m_data[2][1] += other.m_data[2][1]; m_data[2][2] += other.m_data[2][2];
+   709	//}
+   710	//
+   711	//
+   712	//Mat4<T> Mat4<T>::operator-(const Mat4<T> &other) {
+   713	//    Mat4<T> res;
+   714	//
+   715	//    res.m_data[0][0] = m_data[0][0] - other.m_data[0][0];
+   716	//    res.m_data[0][1] = m_data[0][1] - other.m_data[0][1];
+   717	//    res.m_data[0][2] = m_data[0][2] - other.m_data[0][2];
+   718	//
+   719	//    res.m_data[1][0] = m_data[1][0] - other.m_data[1][0];
+   720	//    res.m_data[1][1] = m_data[1][1] - other.m_data[1][1];
+   721	//    res.m_data[1][2] = m_data[1][2] - other.m_data[1][2];
+   722	//
+   723	//    res.m_data[2][0] = m_data[2][0] - other.m_data[2][0];
+   724	//    res.m_data[2][1] = m_data[2][1] - other.m_data[2][1];
+   725	//    res.m_data[2][2] = m_data[2][2] - other.m_data[2][2];
+   726	//
+   727	//    return res;
+   728	//}
+   729	//
+   730	//
+   731	//void Mat4<T>::operator-=(const Mat4<T> &other) {
+   732	//    m_data[0][0] -= other.m_data[0][0]; m_data[0][1] -= other.m_data[0][1]; m_data[0][2] -= other.m_data[0][2];
+   733	//    m_data[1][0] -= other.m_data[1][0]; m_data[1][1] -= other.m_data[1][1]; m_data[1][2] -= other.m_data[1][2];
+   734	//    m_data[2][0] -= other.m_data[2][0]; m_data[2][1] -= other.m_data[2][1]; m_data[2][2] -= other.m_data[2][2];
+   735	//}
+   736	//
+   737	//
+   738	//lpVec3 Mat4<T>::operator*(const lpVec3 &vec) {
+   739	//    lpVec3 res;
+   740	//
+   741	//    res.m_x = m_data[0][0] * vec.m_x + m_data[0][1] * vec.m_y + m_data[0][2] * vec.m_z;
+   742	//    res.m_y = m_data[1][0] * vec.m_x + m_data[1][1] * vec.m_y + m_data[1][2] * vec.m_z;
+   743	//    res.m_z = m_data[2][0] * vec.m_x + m_data[2][1] * vec.m_y + m_data[2][2] * vec.m_z;
+   744	//
+   745	//    return res;
+   746	//}
+   747	//
+   748	//
+   749	//Mat4<T> Mat4<T>::operator*(const Mat4<T> &other) {
+   750	//    Mat4<T> res;
+   751	//
+   752	//    res.m_data[0][0] = m_data[0][0] * other.m_data[0][0] + m_data[0][1] * other.m_data[1][0] + m_data[0][2] * other.m_data[2][0];
+   753	//    res.m_data[0][1] = m_data[0][0] * other.m_data[0][1] + m_data[0][1] * other.m_data[1][1] + m_data[0][2] * other.m_data[2][1];
+   754	//    res.m_data[0][2] = m_data[0][0] * other.m_data[0][2] + m_data[0][1] * other.m_data[1][2] + m_data[0][2] * other.m_data[2][2];
+   755	//
+   756	//    res.m_data[1][0] = m_data[1][0] * other.m_data[0][0] + m_data[1][1] * other.m_data[1][0] + m_data[1][2] * other.m_data[2][0];
+   757	//    res.m_data[1][1] = m_data[1][0] * other.m_data[0][1] + m_data[1][1] * other.m_data[1][1] + m_data[1][2] * other.m_data[2][1];
+   758	//    res.m_data[1][2] = m_data[1][0] * other.m_data[0][2] + m_data[1][1] * other.m_data[1][2] + m_data[1][2] * other.m_data[2][2];
+   759	//
+   760	//    res.m_data[2][0] = m_data[2][0] * other.m_data[0][0] + m_data[2][1] * other.m_data[1][0] + m_data[2][2] * other.m_data[2][0];
+   761	//    res.m_data[2][1] = m_data[2][0] * other.m_data[0][1] + m_data[2][1] * other.m_data[1][1] + m_data[2][2] * other.m_data[2][1];
+   762	//    res.m_data[2][2] = m_data[2][0] * other.m_data[0][2] + m_data[2][1] * other.m_data[1][2] + m_data[2][2] * other.m_data[2][2];
+   763	//
+   764	//    return res;
+   765	//}
+   766	//
+   767	//
+   768	//void Mat4<T>::operator *=(const Mat4<T> &other) {
+   769	//    float m00 = m_data[0][0] * other.m_data[0][0] + m_data[0][1] * other.m_data[1][0] + m_data[0][2] * other.m_data[2][0];
+   770	//    float m01 = m_data[0][0] * other.m_data[0][1] + m_data[0][1] * other.m_data[1][1] + m_data[0][2] * other.m_data[2][1];
+   771	//    float m02 = m_data[0][0] * other.m_data[0][2] + m_data[0][1] * other.m_data[1][2] + m_data[0][2] * other.m_data[2][2];
+   772	//
+   773	//    float m10 = m_data[1][0] * other.m_data[0][0] + m_data[1][1] * other.m_data[1][0] + m_data[1][2] * other.m_data[2][0];
+   774	//    float m11 = m_data[1][0] * other.m_data[0][1] + m_data[1][1] * other.m_data[1][1] + m_data[1][2] * other.m_data[2][1];
+   775	//    float m12 = m_data[1][0] * other.m_data[0][2] + m_data[1][1] * other.m_data[1][2] + m_data[1][2] * other.m_data[2][2];
+   776	//
+   777	//    float m20 = m_data[2][0] * other.m_data[0][0] + m_data[2][1] * other.m_data[1][0] + m_data[2][2] * other.m_data[2][0];
+   778	//    float m21 = m_data[2][0] * other.m_data[0][1] + m_data[2][1] * other.m_data[1][1] + m_data[2][2] * other.m_data[2][1];
+   779	//    float m22 = m_data[2][0] * other.m_data[0][2] + m_data[2][1] * other.m_data[1][2] + m_data[2][2] * other.m_data[2][2];
+   780	//
+   781	//    m_data[0][0] = m00; m_data[0][1] = m01; m_data[0][2] = m02;
+   782	//    m_data[1][0] = m10; m_data[1][1] = m11; m_data[1][2] = m12;
+   783	//    m_data[2][0] = m20; m_data[2][1] = m21; m_data[2][2] = m22;
+   784	//}
+   785	//
+   786	//
+   787	//
+   788	//Mat4<T> Mat4<T>::operator~() {
+   789	//    Mat4<T> res;
+   790	//
+   791	//    res.m_data[0][0] = m_data[0][0]; res.m_data[0][1] = m_data[1][0]; res.m_data[0][2] = m_data[2][0];
+   792	//    res.m_data[1][0] = m_data[0][1]; res.m_data[1][1] = m_data[1][1]; res.m_data[1][2] = m_data[2][1];
+   793	//    res.m_data[2][0] = m_data[0][2]; res.m_data[2][1] = m_data[1][2]; res.m_data[2][2] = m_data[2][2];
+   794	//
+   795	//    return res;
+   796	//}
+   797	//
+   798	//
+   799	//void Mat4<T>::invert() {
+   800	//    float det = m_data[0][0] * m_data[1][1] * m_data[2][2] - m_data[0][0] * m_data[1][2] * m_data[2][1];
+   801	//    det -= m_data[0][1] * m_data[1][0] * m_data[2][2] + m_data[0][1] * m_data[1][2] * m_data[2][0];
+   802	//    det += m_data[0][2] * m_data[1][0] * m_data[2][1] - m_data[0][2] * m_data[1][1] * m_data[2][0];
+   803	//
+   804	//    if (det != 0.0f) {
+   805	//        det = 1.0f / det;
+   806	//
+   807	//        float m00 = m_data[1][1] * m_data[2][2] - m_data[2][1] * m_data[1][2];
+   808	//        float m01 = -(m_data[0][1] * m_data[2][2] - m_data[2][1] * m_data[0][2]);
+   809	//        float m02 = m_data[0][1] * m_data[1][2] - m_data[1][1] * m_data[0][2];
+   810	//
+   811	//        float m10 = -(m_data[1][0] * m_data[2][2] - m_data[2][0] * m_data[1][2]);
+   812	//        float m11 = m_data[0][0] * m_data[2][2] - m_data[2][0] * m_data[0][2];
+   813	//        float m12 = -(m_data[0][0] * m_data[1][2] - m_data[1][0] * m_data[0][2]);
+   814	//
+   815	//        float m20 = m_data[1][0] * m_data[2][1] - m_data[2][0] * m_data[1][1];
+   816	//        float m21 = -(m_data[0][0] * m_data[2][1] - m_data[2][0] * m_data[0][1]);
+   817	//        float m22 = m_data[0][0] * m_data[1][1] - m_data[1][0] * m_data[0][1];
+   818	//
+   819	//        m_data[0][0] = det * m00; m_data[0][1] = det * m01; m_data[0][2] = det * m02;
+   820	//        m_data[1][0] = det * m10; m_data[1][1] = det * m11; m_data[1][2] = det * m12;
+   821	//        m_data[2][0] = det * m20; m_data[2][1] = det * m21; m_data[2][2] = det * m22;
+   822	//    }
+   823	//}
+   824	
+   825	template<typename T>
+   826	void Mat4<T>::PerspectiveProjection(T fov, T aspect, T n, T f) {
+   827	    Clear();
+   828	
+   829	    T r = T(std::tan(0.5 * DEG_TO_RAD(fov)) * n);
+   830	    T l = -r;
+   831	    T t = r / aspect;
+   832	    T b = -t;
+   833	
+   834	    a11 = 2 * n / (r - l);
+   835	    a13 = (r + l) / (r - l);
+   836	    a22 = 2 * n / (t - b);
+   837	    a23 = (t + b) / (t - b);
+   838	    a33 = -(f + n) / (f - n);
+   839	    a34 = -2 * f * n / (f - n);
+   840	    a43 = -1;
+   841	    a44 = 1;
+   842	}
+   843	
+   844	template<typename T>
+   845	void Mat4<T>::LookAt(const Vec3<T> &eye, const Vec3<T> &target, const Vec3<T> &up) {
+   846	    Identity();
+   847	    Vec3<T> Z = eye - target;
+   848	    Z.Normalize();
+   849	    Vec3<T> X = up % Z;
+   850	    X.Normalize();
+   851	    Vec3<T> Y = Z % X;
+   852	    Y.Normalize();
+   853	
+   854	    a11 = X.x;
+   855	    a12 = X.y;
+   856	    a13 = X.z;
+   857	    a21 = Y.x;
+   858	    a22 = Y.y;
+   859	    a23 = Y.z;
+   860	    a31 = Z.x;
+   861	    a32 = Z.y;
+   862	    a33 = Z.z;
+   863	    a14 = -X.Dot(eye);
+   864	    a24 = -Y.Dot(eye);
+   865	    a34 = -Z.Dot(eye);
+   866	}
+   867	
+   868	template <typename T>
+   869	std::ostream &operator<<(std::ostream &os, const Mat4<T> &obj) {
+   870		return os << std::endl 
+   871	              << "(" 
+   872	              << obj.a11 << "  " << obj.a12 << "  " << obj.a13 << "  " << obj.a14 << std::endl << " "
+   873	              << obj.a21 << "  " << obj.a22 << "  " << obj.a23 << "  " << obj.a24 << std::endl << " "
+   874	              << obj.a31 << "  " << obj.a32 << "  " << obj.a33 << "  " << obj.a34 << std::endl << " "
+   875	              << obj.a41 << "  " << obj.a42 << "  " << obj.a43 << "  " << obj.a44 
+   876	              << ")";
+   877	}
+   878	
+   879	template<typename T>
+   880	Mat4<T> operator*(const Mat4<T> &lhs, const Mat4<T> &rhs) {
+   881	    Mat4<T> res;
+   882	    for (size_t i = 0; i < 4; ++i) {
+   883	        for (size_t j = 0; j < 4; ++j) {
+   884	            res.vv[i][j] = lhs.vv[i][0] * rhs.vv[0][j] 
+   885	                         + lhs.vv[i][1] * rhs.vv[1][j] 
+   886	                         + lhs.vv[i][2] * rhs.vv[2][j] 
+   887	                         + lhs.vv[i][3] * rhs.vv[3][j];
+   888	        }
+   889	    } 
+   890	    return res;
+   891	}
+   892	
+   893	template<typename T>
+   894	Vec4<T> operator*(const Mat4<T> &lhs, const Vec4<T> &rhs) {
+   895	    Vec4<T> res;
+   896	    for (size_t i = 0; i < 4; ++i) {
+   897	        res.v[i] = lhs.vv[i][0] * rhs.x 
+   898	                 + lhs.vv[i][1] * rhs.y 
+   899	                 + lhs.vv[i][2] * rhs.z 
+   900	                 + lhs.vv[i][3] * rhs.w;
+   901	    }
+   902	    return res;
+   903	}#pragma once
+   904	
+   905	#define _USE_MATH_DEFINES
+   906	#include <math.h>
+   907	#include <cmath>
+   908	
+   909	#define DEG_TO_RAD(x)  (x * M_PI / 180)
+   910	#define RAD_TO_DEG(x)  (x * 180 / M_PI)
+   911	
+   912	#define RAND_RANGE(a, b) ((b - a)* float_t(rand()) / RAND_MAX + a)
+   913	
+   914	#include "Vec3.h"
+   915	#include "Vec4.h"
+   916	#include "Mat3.h"
+   917	#include "Mat4.h"
+   918	
+   919	template <typename T>
+   920	struct Vec2 {
+   921	    union {
+   922	        struct { T x, y; };
+   923	        struct { T u, v; };
+   924	    };
+   925	};
+   926	
+   927	using Vec2i = Vec2<int32_t>;
+   928	using Vec2f = Vec2<float_t>;
+   929	using Vec3f = Vec3<float_t>;
+   930	using Vec4f = Vec4<float_t>;
+   931	using Mat3f = Mat3<float_t>;
+   932	using Mat4f = Mat4<float_t>;
+   933	
+   934	template <typename T>
+   935	inline T Clamp(T value, T min, T max) {
+   936	    if (value < min) {
+   937	        return min;
+   938	    } else if (value > max) {
+   939	        return max;
+   940	    }
+   941	    return value;
+   942	}
+   943	
+   944	template <typename T>
+   945	T Dot(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+   946	    return lhs.Dot(rhs);
+   947	}
+   948	
+   949	template <typename T>
+   950	T Dot(const Vec4<T> &lhs, const Vec4<T> &rhs) {
+   951	    return lhs.Dot(rhs);
+   952	}
+   953	
+   954	template <typename T>
+   955	Vec3<T> Normalize(const Vec3<T> &v) {
+   956	    Vec3<T> result = v;
+   957	    result.Normalize();
+   958	    return result;
+   959	}
+   960	
+   961	template <typename T>
+   962	Vec4<T> Normalize(const Vec4<T> &v) {
+   963	    Vec4<T> result = v;
+   964	    result.Normalize();
+   965	    return result;
+   966	}
+   967	
+   968	template <typename T>
+   969	Vec3<T> Clamp(const Vec3<T> &v, T min, T max) {
+   970	    return { Clamp(v.x, min, max), Clamp(v.y, min, max), Clamp(v.z, min, max) };
+   971	}
+   972	
+   973	template <typename T>
+   974	Vec4<T> Clamp(const Vec4<T> &v, T min, T max) {
+   975	    return { Clamp(v.x), Clamp(v.y), Clamp(v.z), Clamp(v.w) };
+   976	}
+   977	
+   978	template <typename T>
+   979	Vec3<T> Pow(const Vec3<T> &v, T exp) {
+   980	    return { std::powf(v.x, exp), std::powf(v.y, exp), std::powf(v.z, exp) };
+   981	}
+   982	
+   983	template <typename T>
+   984	Vec4<T> Pow(const Vec4<T> &v, T exp) {
+   985	    return { std::powf(v.x, exp), std::powf(v.y, exp), std::powf(v.z, exp), std::powf(v.w, exp) };
+   986	}
+   987	
+   988	template <typename T>
+   989	inline Vec3<T> Reflect(const Vec3<T> &v, const Vec3<T> &n) {
+   990	    return -2 * Dot(v, n) * n + v;
+   991	}
+   992	
+   993	inline bool IsFaceCCW(const Vec4f & v1, const Vec4f & v2, const Vec4f & v3) {
+   994	    return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) > 0;
+   995	}#include "Mesh.h"
+   996	
+   997	#include <stdexcept>
+   998	#include <filesystem>
+   999	
+  1000	#define TINYOBJLOADER_IMPLEMENTATION
+  1001	#include "tiny_obj_loader.h"
+  1002	
+  1003	Mesh::Mesh(const std::string &filename) {
+  1004	    std::wstring wide{std::filesystem::path{filename}.parent_path()};
+  1005	
+  1006	    using namespace tinyobj;
+  1007	    attrib_t attrib;
+  1008	    std::vector<shape_t> shapes;
+  1009	    std::vector<material_t> materials;
+  1010	
+  1011	    std::string err;
+  1012	    bool ret = LoadObj(&attrib, &shapes, &materials, &err, filename.c_str(), (std::string{wide.begin(), wide.end()} +"\\").c_str());
+  1013	
+  1014	    if (!err.empty() || !ret) {
+  1015	        throw std::runtime_error{"Error while loading .obj: " + err};
+  1016	    }
+  1017	
+  1018	    for (size_t i = 0; i < attrib.vertices.size(); i += 3) {
+  1019	        vertices.push_back(Vec4f{Vec3f{&attrib.vertices[i]}, 1.0f});
+  1020	    }
+  1021	    for (size_t i = 0; i < attrib.normals.size(); i += 3) {
+  1022	        normals.push_back(Vec4f{Vec3f{&attrib.normals[i]}});
+  1023	    }
+  1024	    for (size_t i = 0; i < attrib.texcoords.size(); i += 2) {
+  1025	        uvs.push_back(Vec2f{attrib.texcoords[i], attrib.texcoords[i + 1]});
+  1026	    }
+  1027	    totalTriangles = 0;
+  1028	    for (const auto &x : shapes) {
+  1029	        submeshes.push_back({});
+  1030	        auto &submesh = submeshes.back();
+  1031	        submesh.name = x.name;
+  1032	        for (size_t i = 0; i < x.mesh.indices.size(); i += 3) {
+  1033	            Face face;
+  1034	            face.vertexIndices[0] = x.mesh.indices[i    ].vertex_index;
+  1035	            face.vertexIndices[1] = x.mesh.indices[i + 1].vertex_index;
+  1036	            face.vertexIndices[2] = x.mesh.indices[i + 2].vertex_index;
+  1037	            face.normalIndices[0] = x.mesh.indices[i].normal_index;
+  1038	            face.normalIndices[1] = x.mesh.indices[i + 1].normal_index;
+  1039	            face.normalIndices[2] = x.mesh.indices[i + 2].normal_index;
+  1040	            face.uvIndices[0]     = x.mesh.indices[i].texcoord_index;
+  1041	            face.uvIndices[1]     = x.mesh.indices[i + 1].texcoord_index;
+  1042	            face.uvIndices[2]     = x.mesh.indices[i + 2].texcoord_index;
+  1043	            submesh.faces.push_back(face);
+  1044	        }
+  1045	        totalTriangles += submesh.faces.size();
+  1046	    }
+  1047	}
+  1048	
+  1049	std::ostream &operator<<(std::ostream &os, const Mesh &obj) {
+  1050		return os << "Mesh{" 
+  1051	              << obj.name 
+  1052	              << ", subs=" << obj.submeshes.size()
+  1053	              << ", triangles=" << obj.totalTriangles << "}";
+  1054	}
+  1055	#pragma once
+  1056	
+  1057	#include <ostream>
+  1058	#include <string>
+  1059	#include <vector>
+  1060	
+  1061	#include "Types.h"
+  1062	
+  1063	struct Face {
+  1064	    size_t vertexIndices[3];
+  1065	    size_t normalIndices[3];
+  1066	    size_t uvIndices[3];
+  1067	};
+  1068	
+  1069	struct SubMesh {
+  1070	    std::string name;
+  1071	    std::vector<Face> faces;
+  1072	    size_t materialIndex;
+  1073	};
+  1074	
+  1075	class Mesh {
+  1076	public:
+  1077	    explicit Mesh(const std::string &filename);
+  1078	
+  1079	    const Vec4f &GetVertex(size_t i) const { return vertices[i]; }
+  1080	    const Vec4f &GetNormal(size_t i) const { return normals[i]; }
+  1081	    const Vec2f &GetUV(size_t i) const { return uvs[i]; }
+  1082	
+  1083	    const std::vector<SubMesh> &GetSubmeshes() const { return submeshes; }
+  1084	
+  1085	private:
+  1086	    friend std::ostream &operator<<(std::ostream &os, const Mesh &obj);
+  1087	
+  1088	    std::string name;
+  1089	
+  1090	    std::vector<Vec4f> vertices;
+  1091	    std::vector<Vec4f> normals;
+  1092	    std::vector<Vec2f> uvs;
+  1093	
+  1094	    std::vector<SubMesh> submeshes;
+  1095	
+  1096	    size_t totalTriangles;
+  1097	};
+  1098	#include "Pipeline.h"
+  1099	
+  1100	#include "Types.h"
+  1101	#include "Logger.h"
+  1102	#include "Shader.h"
+  1103	#include "Algorithms.h"
+  1104	
+  1105	void Pipeline::RenderScene(const Scene &scene, Texture &target, Texture *depthTarget, BaseVertexShader &vertexShader, PhongFragmentShader &fragmentShader, const Viewport &viewport) {
+  1106	    for (const auto &mesh : scene.meshes) {
+  1107	        fragmentShader.material = mesh.material;
+  1108	        RenderMesh(mesh, PolygonMode::Fill, target, depthTarget, vertexShader, fragmentShader, viewport);
+  1109	    }
+  1110	
+  1111	    //GaussianBlur(target, { 0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f }, 5);
+  1112	    //Blur(target, 100);
+  1113	
+  1114	    if (!target.IsNormalized()) {
+  1115	        ReinhardTonemapping(target);
+  1116	    }
+  1117	
+  1118	    float_t gamma = 2.2f;
+  1119	    float_t gammaInv = 1.0f / gamma;
+  1120	    // Compress gamma
+  1121	    GammaCorrection(target, gammaInv);
+  1122	}
+  1123	
+  1124	void Pipeline::RenderMesh(const Mesh &mesh, PolygonMode polygonMode, Texture &target, Texture *depthTarget, BaseVertexShader &vertexShader, PhongFragmentShader &fragmentShader, const Viewport &viewport) {
+  1125	    size_t i = 0;
+  1126	    for (size_t primIndex = 0; primIndex < mesh.GetPrimCount(); primIndex++) {
+  1127	        uint32_t indices[] = {mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]};
+  1128	        i += 3;
+  1129	 
+  1130	        Vec4f NDCs[3];
+  1131	        float_t shaderResults[3][64];
+  1132	        float_t vertexAttributes[3][RASTERIZER_MAX_ATTRIBUTES];
+  1133	        size_t numAttributes = 0;
+  1134	        Vec2i screen[3];
+  1135	
+  1136	        size_t attributesBytes = vertexShader.GetNumOutputBytes() - sizeof(Vec4f);
+  1137	
+  1138	        bool vertexClipped = false;
+  1139	        size_t v = 0;
+  1140	        for (const auto index : indices) {
+  1141	            // Get vertex data pointer
+  1142	            const float_t *vertexData = &mesh.vertices[index * mesh.vertex_stride / sizeof(float_t)];
+  1143	            // Calling vertex shader
+  1144	            const float_t *shaderResult = vertexShader.Call(vertexData);
+  1145	            std::memcpy(shaderResults[v], shaderResult, vertexShader.GetNumOutputBytes());
+  1146	            // Get clipped result
+  1147	            Vec4f clipped{shaderResult};
+  1148	
+  1149	            // Clipping
+  1150	            if (clipped.x < -clipped.w || clipped.x > clipped.w) {
+  1151	                vertexClipped |= true;
+  1152	            }
+  1153	            if (clipped.y < -clipped.w || clipped.y > clipped.w) {
+  1154	                vertexClipped |= true;
+  1155	            }
+  1156	            if (clipped.z < -clipped.w || clipped.z > clipped.w) {
+  1157	                vertexClipped |= true;
+  1158	                break;
+  1159	            }
+  1160	
+  1161	            // Perspective division by w
+  1162	            NDCs[v] = clipped * (1 / clipped.w);
+  1163	            ++v;
+  1164	        }
+  1165	        if (vertexClipped) {
+  1166	            continue;
+  1167	        }
+  1168	    
+  1169	        // Face culling
+  1170	        if (!IsFaceCCW(NDCs[0], NDCs[1], NDCs[2])) {
+  1171	            continue;
+  1172	        }
+  1173	
+  1174	        for (size_t v = 0; v < 3; v++) {
+  1175	            // Viewport transform
+  1176	            screen[v].x = int32_t(std::roundf((NDCs[v].x + 1) * 0.5f * viewport.width + viewport.x));
+  1177	            screen[v].y = int32_t(std::roundf((-NDCs[v].y + 1) * 0.5f * viewport.height + viewport.y));
+  1178	
+  1179	            // Fill in attributes
+  1180	            numAttributes = 0;
+  1181	
+  1182	            // Depth
+  1183	            if (depthTarget) {
+  1184	                vertexAttributes[v][numAttributes] = NDCs[v].z;
+  1185	                ++numAttributes;
+  1186	            }
+  1187	
+  1188	            // Copy shader out except for main clipped out
+  1189	            std::memcpy(&vertexAttributes[v][numAttributes], shaderResults[v] + 4, attributesBytes);
+  1190	            numAttributes += attributesBytes / sizeof(float_t);
+  1191	        }
+  1192	
+  1193	        DrawTriangleInfo drawTriangleInfo;
+  1194	        drawTriangleInfo.v1.screenCoords = screen[0];
+  1195	        drawTriangleInfo.v2.screenCoords = screen[1];
+  1196	        drawTriangleInfo.v3.screenCoords = screen[2];
+  1197	
+  1198	        drawTriangleInfo.v1.attributes = vertexAttributes[0];
+  1199	        drawTriangleInfo.v2.attributes = vertexAttributes[1];
+  1200	        drawTriangleInfo.v3.attributes = vertexAttributes[2];
+  1201	
+  1202	        drawTriangleInfo.polygonMode = polygonMode;
+  1203	        drawTriangleInfo.numAttributes = numAttributes;
+  1204	        rasterizer.DrawTriangle(drawTriangleInfo, target, depthTarget, fragmentShader);
+  1205	    }
+  1206	
+  1207	}
+  1208	#pragma once
+  1209	
+  1210	#include "Rasterizer.h"
+  1211	#include "Scene.h"
+  1212	#include "Texture.h"
+  1213	#include "Shader.h"
+  1214	
+  1215	enum class FrontFace {
+  1216	    CW = 0,
+  1217	    CCW = 1
+  1218	};
+  1219	
+  1220	enum class CullFace {
+  1221	    None = 0,
+  1222	    Front = 1,
+  1223	    Back = 2,
+  1224	    Both = 3
+  1225	};
+  1226	
+  1227	struct Viewport {
+  1228	    uint32_t x;
+  1229	    uint32_t y;
+  1230	    uint32_t width;
+  1231	    uint32_t height;
+  1232	};
+  1233	
+  1234	class Pipeline {
+  1235	public:
+  1236	    void RenderScene(const Scene &scene, Texture &target, Texture *depthTarget, BaseVertexShader &vertexShader, PhongFragmentShader &fragmentShader, const Viewport &viewport);
+  1237	    void RenderMesh(const Mesh &mesh, PolygonMode polygonMode, Texture &target, Texture *depthTarget, BaseVertexShader &vertexShader, PhongFragmentShader &fragmentShader, const Viewport &viewport);
+  1238		
+  1239	private:
+  1240	    Rasterizer rasterizer;
+  1241	};#include "Rasterizer.h"
+  1242	
+  1243	#include <stdexcept>
+  1244	#include <cassert>
+  1245	#include <algorithm>
+  1246	
+  1247	#include "Logger.h"
+  1248	#include "Algorithms.h"
+  1249	
+  1250	Rasterizer::Rasterizer() {
+  1251	    std::memset(attributeInfos, 0, RASTERIZER_MAX_ATTRIBUTES * sizeof(AttributeInterpolationInfo));
+  1252	}
+  1253	
+  1254	void Rasterizer::DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, PhongFragmentShader &shader) {
+  1255	    assert(triangleInfo.numAttributes <= RASTERIZER_MAX_ATTRIBUTES);
+  1256	
+  1257	    if (triangleInfo.numAttributes > 0) {
+  1258	        assert(triangleInfo.v1.attributes && triangleInfo.v2.attributes && triangleInfo.v3.attributes);
+  1259	    }
+  1260	
+  1261	    Vec2i &x1 = triangleInfo.v1.screenCoords;
+  1262	    Vec2i &x2 = triangleInfo.v2.screenCoords;
+  1263	    Vec2i &x3 = triangleInfo.v3.screenCoords;
+  1264	
+  1265	    // Sort vertices
+  1266	    if (x1.y > x2.y) {
+  1267	        std::swap(triangleInfo.v1, triangleInfo.v2);
+  1268	    }
+  1269	    if (x1.y > x3.y) {
+  1270	        std::swap(triangleInfo.v1, triangleInfo.v3);
+  1271	    }
+  1272	    if (x2.y > x3.y) {
+  1273	        std::swap(triangleInfo.v2, triangleInfo.v3);
+  1274	    }
+  1275	
+  1276	    // Degenerated triangle
+  1277	    if (x1.y == x3.y) {
+  1278	        return;
+  1279	    }
+  1280	    
+  1281	    // Side heights of triangle
+  1282	    const float_t sideHeight1 = float_t(x3.y - x1.y);
+  1283	    const float_t sideHeight2 = float_t(x2.y - x1.y);
+  1284	    const float_t sideHeight3 = float_t(x3.y - x2.y);
+  1285	
+  1286	    // Compute attribute slopes
+  1287	    for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
+  1288	        attributeInfos[i].d1 = float_t(triangleInfo.v3.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight1;
+  1289	        attributeInfos[i].d2 = sideHeight2 > 0 ? float_t(triangleInfo.v2.attributes[i] - triangleInfo.v1.attributes[i]) / sideHeight2 : 0;
+  1290	        attributeInfos[i].d3 = sideHeight3 > 0 ? float_t(triangleInfo.v3.attributes[i] - triangleInfo.v2.attributes[i]) / sideHeight3 : 0;
+  1291	    }
+  1292	
+  1293	    switch (triangleInfo.polygonMode) {
+  1294	    case PolygonMode::Fill: {
+  1295	        // Just to make sure y is not equal to first pixel y coordinate
+  1296	        int32_t ycur = x1.y - 1;
+  1297	        RasterizeTriangleFill(x1, x2, x3,
+  1298	            [&](int32_t x, int32_t y, int32_t xl, int32_t xr, bool secondHalf, bool swapped) {
+  1299	            if (!(x >= int32_t(0) && x < int32_t(target.Width()) &&
+  1300	                y >= int32_t(0) && y < int32_t(target.Height()))) {
+  1301	                return;
+  1302	            }
+  1303	
+  1304	            if (ycur != y) {
+  1305	                ycur = y;
+  1306	                // Changed to the next row so it is needed to calc new interpolated values on both sides of that row
+  1307	                // and along the row too
+  1308	                for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
+  1309	                    attributeInfos[i].left  = triangleInfo.v1.attributes[i] + attributeInfos[i].d1 * (y - x1.y);
+  1310	                    attributeInfos[i].right = secondHalf ? triangleInfo.v2.attributes[i] + attributeInfos[i].d3 * (y - x2.y)
+  1311	                                                         : triangleInfo.v1.attributes[i] + attributeInfos[i].d2 * (y - x1.y);
+  1312	                    if (swapped) {
+  1313	                        std::swap(attributeInfos[i].left, attributeInfos[i].right);
+  1314	                    }
+  1315	                }
+  1316	                // dattrHor will contain interpolation coeffs along the horizontal line
+  1317	                for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
+  1318	                    attributeInfos[i].dhor = xr - xl > 0 ? (attributeInfos[i].right - attributeInfos[i].left) / float_t(xr - xl) : 0;
+  1319	                }
+  1320	            }
+  1321	
+  1322	            for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
+  1323	                attributeInfos[i].attributeValue = attributeInfos[i].left + attributeInfos[i].dhor * float_t(x - xl);
+  1324	            }
+  1325	
+  1326	            // Depth test
+  1327	            bool depthTestPassed = true;
+  1328	            if (depthTarget) {
+  1329	                float_t newDepth = attributeInfos[0].attributeValue;
+  1330	                assert(newDepth >= -1 && newDepth <= 1);
+  1331	                float_t currentDepth = 1.0f;
+  1332	                depthTarget->Get(x, y, 0, &currentDepth);
+  1333	                if (newDepth > currentDepth) {
+  1334	                    depthTestPassed = false;
+  1335	                } else {
+  1336	                    depthTarget->Set(x, y, 0, &newDepth);
+  1337	                }
+  1338	            }
+  1339	
+  1340	            if (depthTestPassed) {
+  1341	                // Copy attributes
+  1342	                float_t attributeValues[RASTERIZER_MAX_ATTRIBUTES];
+  1343	                for (size_t i = 0, j = depthTarget ? 1 : 0; i < triangleInfo.numAttributes; ++i, ++j) {
+  1344	                    attributeValues[i] = attributeInfos[j].attributeValue;
+  1345	                }
+  1346	
+  1347	                Vec3f fragColor{ shader.Call(attributeValues) };
+  1348	                target.Set(x, y, fragColor);
+  1349	            }
+  1350	
+  1351	        });
+  1352	        break;
+  1353	    }
+  1354	    case PolygonMode::Line:
+  1355	        RasterizeTriangleLine(x1, x2, x3, [&](int32_t x, int32_t y, size_t side) {
+  1356	            for (size_t i = 0; i < triangleInfo.numAttributes; ++i) {
+  1357	                switch (side) {
+  1358	                case 1:
+  1359	                    attributeInfos[i].attributeValue = triangleInfo.v1.attributes[i] + attributeInfos[i].d1 * (y - x1.y);
+  1360	                    break;
+  1361	                case 2:
+  1362	                    attributeInfos[i].attributeValue = triangleInfo.v1.attributes[i] + attributeInfos[i].d2 * (y - x1.y);
+  1363	                    break;
+  1364	                case 3:
+  1365	                    attributeInfos[i].attributeValue = triangleInfo.v2.attributes[i] + attributeInfos[i].d3 * (y - x2.y);
+  1366	                    break;
+  1367	                default:
+  1368	                    break;
+  1369	                }
+  1370	            }
+  1371	            if (x >= int32_t(0) && x < int32_t(target.Width()) && 
+  1372	                y >= int32_t(0) && y < int32_t(target.Height())) {
+  1373	                target.Set(x, y, Vec3f{1, 1, 1});
+  1374	            }
+  1375	        });
+  1376	        break;
+  1377	    case PolygonMode::Point:
+  1378	        target.Set(x1.x, x1.y, Vec3f{1, 1, 1});
+  1379	        target.Set(x2.x, x2.y, Vec3f{1, 1, 1});
+  1380	        target.Set(x3.x, x3.y, Vec3f{1, 1, 1});
+  1381	        break;
+  1382	    default:
+  1383	        break;
+  1384	    }
+  1385	}
+  1386	#pragma once
+  1387	
+  1388	#include <functional>
+  1389	
+  1390	#include "Types.h"
+  1391	#include "Texture.h"
+  1392	#include "Shader.h"
+  1393	
+  1394	constexpr size_t RASTERIZER_MAX_ATTRIBUTES = 64;
+  1395	
+  1396	enum class PolygonMode {
+  1397	    Fill = 0,
+  1398	    Line = 1,
+  1399	    Point = 2
+  1400	};
+  1401	
+  1402	struct RasterizerVertex {
+  1403	    Vec2i   screenCoords;
+  1404	    float_t *attributes;
+  1405	};
+  1406	
+  1407	struct DrawTriangleInfo {
+  1408	    RasterizerVertex v1;
+  1409	    RasterizerVertex v2;
+  1410	    RasterizerVertex v3;
+  1411	    size_t           numAttributes;
+  1412	    PolygonMode      polygonMode;
+  1413	};
+  1414	
+  1415	class Rasterizer {
+  1416	public:
+  1417	    Rasterizer();
+  1418	    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, PhongFragmentShader &shader);
+  1419	
+  1420	private:
+  1421	    struct AttributeInterpolationInfo {
+  1422	        // For each attribute we have 3 its own slope interpolation coeffs for each triangle side
+  1423	        float_t d1;
+  1424	        float_t d2;
+  1425	        float_t d3;
+  1426	        float_t left;
+  1427	        float_t right;
+  1428	        float_t dhor;
+  1429	        float_t attributeValue;
+  1430	    };
+  1431	
+  1432	    AttributeInterpolationInfo attributeInfos[RASTERIZER_MAX_ATTRIBUTES];
+  1433	};
+  1434	
+  1435	#include "Scene.h"
+  1436	
+  1437	#include <stdexcept>
+  1438	#include <filesystem>
+  1439	#include <map>
+  1440	
+  1441	#define TINYOBJLOADER_IMPLEMENTATION
+  1442	#include "tiny_obj_loader.h"
+  1443	
+  1444	// The key for eliminating redundant vertices
+  1445	struct ObjKey {
+  1446	    inline ObjKey() {}
+  1447	
+  1448	    inline bool operator <(const ObjKey &other) const {
+  1449	        if (positionIndex != other.positionIndex)
+  1450	            return (positionIndex < other.positionIndex);
+  1451	        if (normalIndex != other.normalIndex)
+  1452	            return (normalIndex < other.normalIndex);
+  1453	        if (texcoordsIndex != other.texcoordsIndex)
+  1454	            return (texcoordsIndex < other.texcoordsIndex);
+  1455	        return false;
+  1456	    }
+  1457	
+  1458	    uint32_t positionIndex;
+  1459	    uint32_t normalIndex;
+  1460	    uint32_t texcoordsIndex;
+  1461	};
+  1462	
+  1463	void Scene::LoadMeshFromObj(const std::string &filename, bool scaleToUnit, bool invertTexU, bool invertTexV) {
+  1464	    std::wstring wide{std::filesystem::path{filename}.parent_path()};
+  1465	    std::string root = std::string{wide.begin(), wide.end()} +"/";
+  1466	
+  1467	    using namespace tinyobj;
+  1468	    attrib_t attrib;
+  1469	    std::vector<shape_t> shapes;
+  1470	    std::vector<material_t> objMaterials;
+  1471	
+  1472	    std::string err;
+  1473	    bool ret = LoadObj(&attrib, &shapes, &objMaterials, &err, filename.c_str(), root.c_str());
+  1474	
+  1475	    if (!err.empty() || !ret) {
+  1476	        //throw std::runtime_error{"Error while loading .obj: " + err};
+  1477	    }
+  1478	
+  1479	    // Load the material data
+  1480	    auto const base_material = static_cast<uint32_t>(objMaterials.size());
+  1481	    materials.reserve(objMaterials.size());
+  1482	    for (auto& material : objMaterials) {
+  1483	        // Create the material object
+  1484	        materials.push_back({});
+  1485	        auto& m = materials.back();
+  1486	        m.name = material.name;
+  1487	
+  1488	        m.ambient = {material.ambient[0], material.ambient[1], material.ambient[2]};
+  1489	        m.albedo = {material.diffuse[0], material.diffuse[1], material.diffuse[2]};
+  1490	        m.specular = { material.specular[0], material.specular[1], material.specular[2] };
+  1491	        m.emission = { material.emission[0], material.emission[1], material.emission[2] };
+  1492	        m.shininess = material.shininess;
+  1493	
+  1494	        if (!material.ambient_texname.empty()) {
+  1495	            auto fullPath = root + material.ambient_texname;
+  1496	            auto it = texturesMap.find(fullPath);
+  1497	            if (it != texturesMap.end()) {
+  1498	                m.ambientMap = &it->second;
+  1499	            } else {
+  1500	                Texture ambientTexture(fullPath, true);
+  1501	                texturesMap[fullPath] = std::move(ambientTexture);
+  1502	                m.ambientMap = &texturesMap[fullPath];
+  1503	            }
+  1504	        }
+  1505	        if (!material.diffuse_texname.empty()) {
+  1506	            auto fullPath = root + material.diffuse_texname;
+  1507	            auto it = texturesMap.find(fullPath);
+  1508	            if (it != texturesMap.end()) {
+  1509	                m.albedoMap = &it->second;
+  1510	            }
+  1511	            else {
+  1512	                Texture albedoTexture(fullPath, true);
+  1513	                texturesMap[fullPath] = std::move(albedoTexture);
+  1514	                m.albedoMap = &texturesMap[fullPath];
+  1515	            }
+  1516	            if (!m.ambientMap) {
+  1517	                m.ambientMap = m.albedoMap;
+  1518	            }
+  1519	        }
+  1520	        if (!material.specular_texname.empty()) {
+  1521	            auto fullPath = root + material.specular_texname;
+  1522	            auto it = texturesMap.find(fullPath);
+  1523	            if (it != texturesMap.end()) {
+  1524	                m.specularMap = &it->second;
+  1525	            }
+  1526	            else {
+  1527	                Texture specularTexture(fullPath);
+  1528	                texturesMap[fullPath] = std::move(specularTexture);
+  1529	                m.specularMap = &texturesMap[fullPath];
+  1530	            }
+  1531	        }
+  1532	        if (!material.emissive_texname.empty()) {
+  1533	            auto fullPath = root + material.emissive_texname;
+  1534	            auto it = texturesMap.find(fullPath);
+  1535	            if (it != texturesMap.end()) {
+  1536	                m.emissionMap = &it->second;
+  1537	            }
+  1538	            else {
+  1539	                Texture emissionTexture(fullPath, true);
+  1540	                texturesMap[fullPath] = std::move(emissionTexture);
+  1541	                m.emissionMap = &texturesMap[fullPath];
+  1542	            }
+  1543	        }
+  1544	    }
+  1545	
+  1546	    float_t maxAbsCoord = 0.0f;
+  1547	    for (const auto &shape : shapes) {
+  1548	        ObjKey objKey;
+  1549	        std::vector<float> vertices;
+  1550	        std::vector<uint32_t> indices;
+  1551	        std::map<ObjKey, uint32_t> objMap;
+  1552	
+  1553	        Material *material = nullptr;
+  1554	        uint32_t i = 0, materialId = 0, vertexIndex = 0;
+  1555	        float_t vertex[8];
+  1556	
+  1557	        for (auto face = shape.mesh.num_face_vertices.begin(); face != shape.mesh.num_face_vertices.end(); i += *face, ++materialId, ++face) {
+  1558	            // We only support triangle primitives
+  1559	            if (*face != 3) {
+  1560	                continue;
+  1561	            }
+  1562	
+  1563	            // Load the material information
+  1564	            uint32_t material_idx = (!shape.mesh.material_ids.empty() ? shape.mesh.material_ids[materialId] : 0xffffffffu);
+  1565	            material = (material_idx != 0xffffffffu ? &materials[material_idx] : nullptr);
+  1566	            material_idx += (material_idx != 0xffffffffu ? base_material : 0);
+  1567	
+  1568	            for (size_t v = 0u; v < 3u; ++v) {
+  1569	                // Construct the lookup key
+  1570	                objKey.positionIndex = shape.mesh.indices[i + v].vertex_index;
+  1571	                objKey.normalIndex = shape.mesh.indices[i + v].normal_index;
+  1572	                objKey.texcoordsIndex = shape.mesh.indices[i + v].texcoord_index;
+  1573	
+  1574	                // Look up the vertex map
+  1575	                uint32_t index;
+  1576	                auto it = objMap.find(objKey);
+  1577	                if (it != objMap.end()) {
+  1578	                    index = it->second;
+  1579	                } else {
+  1580	                    // Push the vertex into memory 
+  1581	
+  1582	                    for (size_t p = 0u; p < 3u; ++p) {
+  1583	                        vertex[p] = attrib.vertices[3 * objKey.positionIndex + p];
+  1584	                        if (std::fabs(vertex[p]) > maxAbsCoord) {
+  1585	                            maxAbsCoord = std::fabs(vertex[p]);
+  1586	                        }
+  1587	                    }
+  1588	
+  1589	                    if (objKey.normalIndex != 0xffffffffu) {
+  1590	                        for (auto n = 0u; n < 3u; ++n) {
+  1591	                            vertex[n + 3] = attrib.normals[3 * objKey.normalIndex+ n];
+  1592	                        }
+  1593	                    }
+  1594	                        
+  1595	                    if (objKey.texcoordsIndex != 0xffffffffu) {
+  1596	                        for (auto t = 0u; t < 2u; ++t) {
+  1597	                            vertex[t + 6] = attrib.texcoords[2 * objKey.texcoordsIndex + t];
+  1598	                        }
+  1599	                        if (invertTexU) {
+  1600	                            vertex[0 + 6] = 1.0f - vertex[0 + 6];
+  1601	                        }
+  1602	                        if (invertTexV) {
+  1603	                            vertex[1 + 6] = 1.0f - vertex[1 + 6];
+  1604	                        }
+  1605	                    }
+  1606	
+  1607	                    /*for (auto c = 0u; c < 3u; ++c)
+  1608	                        vertex[c + 9] = (material != nullptr ? material->diffuse[c] : 0.7f);*/
+  1609	
+  1610	                    for (float value : vertex) {
+  1611	                        vertices.push_back(value);
+  1612	                    }
+  1613	
+  1614	                    index = vertexIndex++;
+  1615	                    objMap[objKey] = index;
+  1616	                }
+  1617	
+  1618	                // Push the index into memory
+  1619	                indices.push_back(index);
+  1620	            }
+  1621	        }
+  1622	
+  1623	        // Create the mesh object
+  1624	        meshes.push_back(Mesh());
+  1625	        auto& mesh = meshes.back();
+  1626	        mesh.name = shape.name;
+  1627	        std::swap(mesh.vertices, vertices);
+  1628	        mesh.vertex_stride = sizeof(vertex);
+  1629	        std::swap(mesh.indices, indices);
+  1630	        mesh.index_stride = sizeof(uint32_t);
+  1631	        mesh.material = material;
+  1632	    }
+  1633	
+  1634	    if (scaleToUnit) {
+  1635	        // Scale all model vertices
+  1636	        float_t maxAbsCoordInv = 1 / maxAbsCoord;
+  1637	        for (auto &mesh : meshes) {
+  1638	            for (size_t v = 0; v < mesh.GetVertexCount(); v++) {
+  1639	                size_t offset = v * mesh.vertex_stride / sizeof(float_t);
+  1640	                mesh.vertices[offset + 0] *= maxAbsCoordInv;
+  1641	                mesh.vertices[offset + 1] *= maxAbsCoordInv;
+  1642	                mesh.vertices[offset + 2] *= maxAbsCoordInv;
+  1643	            }
+  1644	        }
+  1645	    }
+  1646	}
+  1647	#pragma once
+  1648	
+  1649	#include <ostream>
+  1650	#include <string>
+  1651	#include <vector>
+  1652	#include <unordered_map>
+  1653	
+  1654	#include "Types.h"
+  1655	#include "Texture.h"
+  1656	
+  1657	// Describing scene
+  1658	
+  1659	struct Material;
+  1660	
+  1661	/* Mesh class */
+  1662	struct Mesh {
+  1663	    std::string name;
+  1664	
+  1665	    std::vector<float_t> vertices;
+  1666	    uint32_t vertex_stride;
+  1667	    std::vector<uint32_t> indices;
+  1668	    uint32_t index_stride;
+  1669	
+  1670	    Material *material{nullptr};
+  1671	
+  1672	    // Gets the number of primitives in the mesh
+  1673	    inline uint32_t GetPrimCount() const {
+  1674	        return GetIndexCount() / 3;
+  1675	    }
+  1676	
+  1677	    // Gets the number of indices in the mesh
+  1678	    inline uint32_t GetIndexCount() const {
+  1679	        return static_cast<uint32_t>((indices.size() << 2) / index_stride);
+  1680	    }
+  1681	
+  1682	    // Gets the number of vertices in the mesh
+  1683	    inline uint32_t GetVertexCount() const {
+  1684	        return static_cast<uint32_t>((vertices.size() << 2) / vertex_stride);
+  1685	    }
+  1686	};
+  1687	
+  1688	/* Material */
+  1689	struct Material {
+  1690	    std::string name;
+  1691	    Vec3f ambient{0.1f, 0.1f, 0.1f};
+  1692	    Vec3f albedo{1.0f, 1.0f, 1.0f};
+  1693	    Vec3f specular{1.0f, 1.0f, 1.0f};
+  1694	    Vec3f emission{0, 0, 0};
+  1695	    float_t shininess;
+  1696	    const Texture *ambientMap{nullptr};
+  1697	    const Texture *albedoMap{nullptr};
+  1698	    const Texture *specularMap{nullptr};
+  1699	    const Texture *emissionMap{ nullptr };
+  1700	};
+  1701	
+  1702	enum class LightType {
+  1703	    Directional = 0,
+  1704	    Omni = 1
+  1705	};
+  1706	
+  1707	/* Light */
+  1708	struct Light {
+  1709	    LightType lightType;
+  1710	    union {
+  1711	        Vec3f direction;
+  1712	        Vec3f position;
+  1713	    };
+  1714	    Vec3f ambient;
+  1715	    Vec3f diffuse;
+  1716	    Vec3f specular;
+  1717	
+  1718	    float_t constant{1.0f};
+  1719	    float_t linear{1.0f};
+  1720	    float_t quadratic{1.0f};
+  1721	};
+  1722	
+  1723	struct Scene {
+  1724	    std::vector<Mesh> meshes;
+  1725	    std::vector<Material> materials;
+  1726	    std::vector<Light> lights;
+  1727	    
+  1728	    std::unordered_map<std::string, Texture> texturesMap;
+  1729	
+  1730	    void LoadMeshFromObj(const std::string &filename, bool scaleToUnit = true, bool invertTexU = false, bool invertTexV = false);
+  1731	};
+  1732	#include "Shader.h"
+  1733	
+  1734	void BaseVertexShader::Main() {
+  1735	    outClipPosition = projection * view * model * Vec4f{ inPosition, 1.0f };
+  1736	    outWorldPosition = model * Vec4f{ inPosition, 1.0f };
+  1737	    outWorldNormal = model * Vec4f{ inNormal, 0.0f };
+  1738	    outUV = inUV;
+  1739	
+  1740	    outDepthViewInverse = 1 / outClipPosition.w;
+  1741	    outUV.x *= outDepthViewInverse;
+  1742	    outUV.y *= outDepthViewInverse;
+  1743	}
+  1744	
+  1745	void PhongFragmentShader::Main() {
+  1746	    assert(material);
+  1747	    assert(lights);
+  1748	
+  1749	    inUV.x /= inDepthViewInverse;
+  1750	    inUV.y /= inDepthViewInverse;
+  1751	
+  1752	    Vec3f materialAmbient = { 1, 1, 1 };
+  1753	    Vec3f materialAlbedo = { 1, 1, 1 };
+  1754	    Vec3f materialSpecular = { 1, 1, 1 };
+  1755	    Vec3f materialEmission = { 0, 0, 0 };
+  1756	    float_t materialShininess = 10.0f;
+  1757	
+  1758	    if (material) {
+  1759	        float_t sample[4];
+  1760	
+  1761	        // Ambient
+  1762	        if (material->ambientMap) {
+  1763	            material->ambientMap->Sample(inUV.u, inUV.v, sample);
+  1764	            materialAmbient.Set(sample);
+  1765	        }
+  1766	        else {
+  1767	            materialAmbient = material->ambient;
+  1768	        }
+  1769	
+  1770	        // Albedo
+  1771	        if (material->albedoMap) {
+  1772	            material->albedoMap->Sample(inUV.u, inUV.v, sample);
+  1773	            materialAlbedo.Set(sample);
+  1774	        }
+  1775	        else {
+  1776	            materialAlbedo = material->albedo;
+  1777	        }
+  1778	
+  1779	        // Specular
+  1780	        if (material->specularMap) {
+  1781	            material->specularMap->Sample(inUV.u, inUV.v, sample);
+  1782	            materialSpecular.Set(sample);
+  1783	        }
+  1784	        else {
+  1785	            materialSpecular = material->specular;
+  1786	        }
+  1787	
+  1788	        // Emission
+  1789	        if (material->emissionMap) {
+  1790	            material->emissionMap->Sample(inUV.u, inUV.v, sample);
+  1791	            materialEmission.Set(sample);
+  1792	        }
+  1793	        else {
+  1794	            materialEmission = material->emission;
+  1795	        }
+  1796	
+  1797	        // Shininess
+  1798	        materialShininess = material->shininess;
+  1799	    }
+  1800	
+  1801	    inWorldNormal.Normalize();
+  1802	
+  1803	    Vec3f result{ 0.0f };
+  1804	
+  1805	    for (const auto &light : *lights) {
+  1806	        Vec3f lightDirection;
+  1807	        float_t attenuation = 1.0f;
+  1808	        if (light.lightType == LightType::Directional) {
+  1809	            lightDirection = Normalize(-1.0f * light.direction);
+  1810	        }
+  1811	        else {
+  1812	            lightDirection = light.position - inWorldPosition;
+  1813	            float_t lightDistance = lightDirection.Length();
+  1814	            lightDirection = Normalize(lightDirection);
+  1815	            attenuation = 1.0f / (light.constant + light.linear * lightDistance + light.quadratic * (lightDistance * lightDistance));
+  1816	        }
+  1817	
+  1818	        // Ambient
+  1819	        Vec3f ambient = attenuation * materialAmbient * Vec3f{ light.ambient };
+  1820	
+  1821	        // Albedo
+  1822	        Vec3f albedo = attenuation * std::max(Dot(inWorldNormal, lightDirection), 0.0f) * materialAlbedo * Vec3f { light.diffuse };
+  1823	
+  1824	        // Specular
+  1825	        bool blinn = true;
+  1826	        float_t spec = 0.0f;
+  1827	        Vec3f viewDirection = Normalize(viewPosition - inWorldPosition);
+  1828	        if (blinn) {
+  1829	            spec = std::powf(std::max(Dot(inWorldNormal, Normalize(lightDirection + viewDirection)), 0.0f), 3.0f * materialShininess);
+  1830	        }
+  1831	        else {
+  1832	            Vec3f reflectDirection = Reflect(-1.0f * lightDirection, inWorldNormal);
+  1833	            spec = std::powf(std::max(Dot(viewDirection, reflectDirection), 0.0f), materialShininess);
+  1834	        }
+  1835	
+  1836	        Vec3f specular = attenuation * spec * materialSpecular * Vec3f{ light.specular };
+  1837	
+  1838	        result += ambient + albedo + specular;
+  1839	    }
+  1840	
+  1841	    result += materialEmission;
+  1842	
+  1843	    outFragColor = Vec4f{ result, 1.0f };
+  1844	}
+  1845	#pragma once
+  1846	
+  1847	#include <algorithm>
+  1848	#include <cassert>
+  1849	
+  1850	#include "Types.h"
+  1851	#include "Scene.h"
+  1852	
+  1853	#define IN
+  1854	#define OUT
+  1855	#define UNIFORM
+  1856	
+  1857	/* Base shader class. */
+  1858	class Shader {
+  1859	public:
+  1860	    virtual ~Shader() = default;
+  1861	
+  1862	    const float_t *Call(const float_t *ins) {
+  1863	        assert(ins);
+  1864	        std::memcpy(inStart, ins, numInputBytes);
+  1865	        Main();
+  1866	        return static_cast<const float_t *>(outStart);
+  1867	    }
+  1868	
+  1869	    /* How many bytes is as in? */
+  1870	    void SetIn(size_t numBytes, void *inputStart) {
+  1871	        assert(numBytes > 0);
+  1872	        assert(inputStart);
+  1873	        this->numInputBytes = numBytes;
+  1874	        this->inStart = inputStart;
+  1875	    }
+  1876	
+  1877	    /* How many bytes is as out? */
+  1878	    void SetOut(size_t numBytes, void *outStart) {
+  1879	        assert(numBytes > 0);
+  1880	        assert(outStart);
+  1881	        this->numOutputBytes = numBytes;
+  1882	        this->outStart = outStart;
+  1883	    }
+  1884	
+  1885	    size_t GetNumOutputBytes() const { return numOutputBytes; }
+  1886	
+  1887	protected:
+  1888	    /* Shader user entry point. */
+  1889	    virtual void Main() = 0;
+  1890	
+  1891	    size_t numInputBytes;
+  1892	    size_t numOutputBytes;
+  1893	    void *inStart;
+  1894	    const void *outStart;
+  1895	};
+  1896	
+  1897	/* Basic vertex shader. */
+  1898	class BaseVertexShader : public Shader {
+  1899	public:
+  1900	    UNIFORM Mat4f model;
+  1901	    UNIFORM Mat4f view;
+  1902	    UNIFORM Mat4f projection;
+  1903	
+  1904	    BaseVertexShader() {
+  1905	        SetIn(sizeof(Vec3f) * 2 + sizeof(Vec2f), &inPosition);
+  1906	        SetOut(sizeof(Vec4f) + 2 * sizeof(Vec3f) + sizeof(Vec2f) + sizeof(float_t), &outClipPosition);
+  1907	    }
+  1908	
+  1909	    virtual void Main() override;
+  1910	
+  1911	private:
+  1912	    IN Vec3f inPosition;
+  1913	    IN Vec3f inNormal;
+  1914	    IN Vec2f inUV;
+  1915	
+  1916	    OUT Vec4f outClipPosition;
+  1917	    OUT Vec3f outWorldPosition;
+  1918	    OUT Vec3f outWorldNormal;
+  1919	    OUT Vec2f outUV;
+  1920	
+  1921	    OUT float_t outDepthViewInverse;
+  1922	};
+  1923	
+  1924	/* Basic phong fragment shader. */
+  1925	class PhongFragmentShader : public Shader {
+  1926	public:
+  1927	    UNIFORM Material *material;
+  1928	    UNIFORM const std::vector<Light> *lights;
+  1929	    UNIFORM Vec3f viewPosition;
+  1930	
+  1931	    PhongFragmentShader() {
+  1932	        SetIn(sizeof(Vec3f) * 2 + sizeof(Vec2f) + sizeof(float_t), &inWorldPosition);
+  1933	        SetOut(sizeof(Vec4f), &outFragColor);
+  1934	    }
+  1935	
+  1936	    virtual void Main() override;
+  1937	
+  1938	private:
+  1939	    IN Vec3f inWorldPosition;
+  1940	    IN Vec3f inWorldNormal;
+  1941	    IN Vec2f inUV;
+  1942	    IN float_t inDepthViewInverse;
+  1943	
+  1944	    OUT Vec4f outFragColor;
+  1945	};#include "Texture.h"
+  1946	
+  1947	#define STBI_MSC_SECURE_CRT
+  1948	#define STB_IMAGE_IMPLEMENTATION
+  1949	#include "stb_image.h"
+  1950	
+  1951	#define STB_IMAGE_WRITE_IMPLEMENTATION
+  1952	#include "stb_image_write.h"
+  1953	
+  1954	#include "Algorithms.h"
+  1955	
+  1956	Texture::Texture(const std::string &name, uint32_t width, uint32_t height, size_t numComponents, size_t bytesPerComponent, bool isNormalized)
+  1957		: name(name)
+  1958	    , width(width)
+  1959		, height(height)
+  1960		, numComponents(numComponents)
+  1961		, bytesPerComponent(bytesPerComponent)
+  1962	    , isNormalized(isNormalized) {
+  1963	    buffer.resize(width * height * numComponents * bytesPerComponent, 0);
+  1964	    assert(width > 0 && height > 0);
+  1965	    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
+  1966	    assert(bytesPerComponent == 4 || bytesPerComponent == 8);
+  1967	}
+  1968	
+  1969	Texture::Texture(const std::string &fileName, bool isSRGB) {
+  1970	    assert(!fileName.empty());
+  1971	
+  1972	    // Load image from file
+  1973	    int x, y, n;
+  1974	    unsigned char *data = nullptr;
+  1975	    data = stbi_load(fileName.c_str(), &x, &y, &n, 0);
+  1976	
+  1977	    if (!data) {
+  1978	        throw std::runtime_error{"Cant load image"};
+  1979	    }
+  1980	
+  1981	    width = static_cast<uint32_t>(x);
+  1982	    height = static_cast<uint32_t>(y);
+  1983	    numComponents = n;
+  1984	    bytesPerComponent = sizeof(float_t);
+  1985	    name = fileName;
+  1986	    buffer.resize(width * height * numComponents * bytesPerComponent);
+  1987	
+  1988	    assert(width > 0 && height > 0);
+  1989	    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
+  1990	
+  1991	    // Copy data and transform into normalized [0;1]
+  1992	    unsigned char *srcPtr = data;
+  1993	    float_t *dstPtr = reinterpret_cast<float_t*>(buffer.data());
+  1994	    for (size_t i = 0; i < width * height * numComponents; ++i) {
+  1995	        *dstPtr++ = (float_t(*srcPtr++) / 255.0f);
+  1996	    }
+  1997	    stbi_image_free(data);
+  1998	
+  1999	    isNormalized = true;
+  2000	
+  2001	    // Decoding gamma if needed
+  2002	    if (isSRGB) {
+  2003	        GammaCorrection(*this, 2.2f);
+  2004	    }
+  2005	}
+  2006	
+  2007	void Texture::Clear(const void *clearValues) {
+  2008	    assert(clearValues);
+  2009	    for (size_t j = 0; j < height; j++) {
+  2010	        for (size_t i = 0; i < width; i++) {
+  2011	            Set(i, j, clearValues);
+  2012	        }
+  2013	    }
+  2014	}
+  2015	
+  2016	void Texture::Set(size_t x, size_t y, size_t component, const void *value) {
+  2017	    assert(component >= 0 && component < numComponents);
+  2018	    assert(value);
+  2019	
+  2020	    size_t i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+  2021	    assert(i < buffer.size());
+  2022	
+  2023	    float_t v = *((const float_t*)value);
+  2024	    if (isNormalized) {
+  2025	        v = Clamp(v, 0.0f, 1.0f);
+  2026	    }
+  2027	
+  2028		std::memcpy(&buffer[i], &v, bytesPerComponent);
+  2029	}
+  2030	
+  2031	void Texture::Set(size_t x, size_t y, const void *values) {
+  2032	    assert(values);
+  2033	
+  2034	    size_t i = (y * width + x) * (numComponents * bytesPerComponent);
+  2035	    assert(i < buffer.size());
+  2036	
+  2037	    if (isNormalized) {
+  2038	        for (size_t i = 0; i < numComponents; i++) {
+  2039	            float_t *ptr = (float_t*)((char*)values + i * bytesPerComponent);
+  2040	            *ptr = Clamp(*ptr, 0.0f, 1.0f);
+  2041	        }
+  2042	    }
+  2043	
+  2044	    std::memcpy(&buffer[i], values, numComponents * bytesPerComponent);
+  2045	}
+  2046	
+  2047	void Texture::Set(size_t x, size_t y, const Vec3f &value) {
+  2048	    assert(numComponents >= 3);
+  2049	    Set(x, y, &value);
+  2050	}
+  2051	
+  2052	void Texture::Set(size_t x, size_t y, const Vec4f &value) {
+  2053	    assert(numComponents >= 4);
+  2054	    Set(x, y, &value);
+  2055	}
+  2056	
+  2057	void Texture::Get(size_t x, size_t y, size_t component, void *outValue) const {
+  2058	    assert(component >= 0 && component < numComponents);
+  2059	    assert(outValue);
+  2060	
+  2061	    size_t i = (y * width + x) * (numComponents * bytesPerComponent) + component * bytesPerComponent;
+  2062	    assert(i < buffer.size());
+  2063	
+  2064	    *((float*)outValue) = *((float*)&buffer[i]);
+  2065	}
+  2066	
+  2067	void Texture::Get(size_t x, size_t y, void *outValues) const {
+  2068	    assert(outValues);
+  2069	
+  2070	    size_t i = (y * width + x) * (numComponents * bytesPerComponent);
+  2071	    assert(i < buffer.size());
+  2072	
+  2073	    std::memcpy(outValues, &buffer[i], numComponents * bytesPerComponent);
+  2074	}
+  2075	
+  2076	void Texture::SaveBmp(const std::string &fileName) const {
+  2077	    assert(numComponents == 1 || numComponents == 3 || numComponents == 4);
+  2078	
+  2079		std::vector<uint8_t> imageData;
+  2080		imageData.resize(3 * width * height);
+  2081	
+  2082		auto srcPtr = buffer.data();
+  2083		auto dstPtr = imageData.data();
+  2084	    float r, g, b;
+  2085	
+  2086	    for (size_t i = 0; i < width * height; i++) {
+  2087	        if (numComponents == 1) {
+  2088	            r = g = b = *((float*)srcPtr);
+  2089	            srcPtr += bytesPerComponent;
+  2090	        } else if (numComponents >= 3) {
+  2091	            r = *((float*)srcPtr);
+  2092	            srcPtr += bytesPerComponent;
+  2093	            g = *((float*)srcPtr);
+  2094	            srcPtr += bytesPerComponent;
+  2095	            b = *((float*)srcPtr);
+  2096	            srcPtr += bytesPerComponent;
+  2097	        }
+  2098	        if (numComponents == 4) {
+  2099	            srcPtr += bytesPerComponent;
+  2100	        }
+  2101	
+  2102	        *dstPtr++ = uint8_t(r * 255.0);
+  2103	        *dstPtr++ = uint8_t(g * 255.0);
+  2104	        *dstPtr++ = uint8_t(b * 255.0);
+  2105	    }
+  2106	
+  2107		stbi_write_bmp(fileName.empty() ? name.c_str() : fileName.c_str(), (int)width, (int)height, 3, imageData.data());
+  2108	}
+  2109	
+  2110	void Texture::Sample(float_t u, float_t v, void *outValue) const {
+  2111	    assert(outValue);
+  2112	
+  2113	    /*u = Clamp(u, 0.0f, 1.0f);
+  2114	    v = Clamp(v, 0.0f, 1.0f);*/
+  2115	
+  2116	    u = u - int(u);
+  2117	    v = v - int(v);
+  2118	    if (u < 0) {
+  2119	        u = 1.0f + u;
+  2120	    }
+  2121	    if (v < 0) {
+  2122	        v = 1.0f + v;
+  2123	    }
+  2124	
+  2125	    size_t x = static_cast<size_t>(u * (width - 1));
+  2126	    size_t y = static_cast<size_t>(v * (height - 1));
+  2127	    Get(x, y, outValue);
+  2128	}
+  2129	
+  2130	void Texture::CopyTo(Texture &dst) const {
+  2131	    assert(IsCompatibleWith(dst));
+  2132	    dst.buffer = buffer;
+  2133	}
+  2134	
+  2135	void Texture::MoveTo(Texture &dst) {
+  2136	    assert(IsCompatibleWith(dst));
+  2137	    dst.buffer = std::move(buffer);
+  2138	}
+  2139	
+  2140	std::ostream &operator<<(std::ostream &os, const Texture &obj) {
+  2141		return os << "Texture{" << obj.name.c_str() << ", w=" << obj.width << ", h=" << obj.height << ", c=" << obj.numComponents 
+  2142				  << ", bpc=" << obj.bytesPerComponent << "}";
+  2143	}#pragma once
+  2144	
+  2145	#include <ostream>
+  2146	#include <vector>
+  2147	
+  2148	#include "Math.h"
+  2149	
+  2150	class Texture {
+  2151	public:
+  2152	    Texture() = default;
+  2153		Texture(const std::string &name, uint32_t width, uint32_t height, size_t numComponents, size_t bytesPerComponent, bool isNormalized = true);
+  2154	    Texture(const std::string &fileName, bool isSRGB = false);
+  2155	
+  2156	    void Clear(const void *clearValues);
+  2157	
+  2158		void Set(size_t x, size_t y, size_t component, const void *value);
+  2159	    void Set(size_t x, size_t y, const void *values);
+  2160		void Set(size_t x, size_t y, const Vec3f &value);
+  2161		void Set(size_t x, size_t y, const Vec4f &value);
+  2162	    void Get(size_t x, size_t y, size_t component, void *outValue) const;
+  2163	    void Get(size_t x, size_t y, void * outValues) const;
+  2164	
+  2165		void SaveBmp(const std::string &fileName) const;
+  2166	
+  2167	    void Sample(float_t u, float_t v, void *outValue) const;
+  2168	
+  2169		uint32_t Width() const { return width; }
+  2170	    uint32_t Height() const { return height; }
+  2171	
+  2172	    const std::string &Name() const { return name; }
+  2173	    size_t GetNumComponents() const { return numComponents; }
+  2174	    size_t GetBytesPerComponent() const { return bytesPerComponent; }
+  2175	    bool IsNormalized() const { return isNormalized; }
+  2176	
+  2177	    bool IsCompatibleWith(const Texture &texture) const { 
+  2178	        return width == texture.width && 
+  2179	               height == texture.height && 
+  2180	               numComponents == texture.numComponents && 
+  2181	               bytesPerComponent == texture.bytesPerComponent && 
+  2182	               isNormalized == texture.isNormalized && 
+  2183	               buffer.size() == texture.buffer.size(); 
+  2184	    }
+  2185	
+  2186	    float_t GetAspectRatio() const { return static_cast<float_t>(width) / static_cast<float_t>(height); }
+  2187	
+  2188	    void CopyTo(Texture &dst) const;
+  2189	    void MoveTo(Texture &dst);
+  2190	
+  2191	private:
+  2192		friend std::ostream &operator<<(std::ostream &os, const Texture &obj);
+  2193	
+  2194	    std::string name;
+  2195	
+  2196		uint32_t width;
+  2197		uint32_t height;
+  2198		size_t numComponents;
+  2199		size_t bytesPerComponent;
+  2200	
+  2201	    bool isNormalized;
+  2202	
+  2203		std::vector<uint8_t> buffer;
+  2204	};
+  2205	
+  2206	std::ostream &operator<<(std::ostream &os, const Texture &obj);#pragma once
+  2207	
+  2208	#include <cstdint>
+  2209	
+  2210	#ifdef USE_DOUBLE
+  2211	using float_t = double;
+  2212	#else
+  2213	using float_t = float;
+  2214	#endif#pragma once
+  2215	
+  2216	#include <ostream>
+  2217	
+  2218	#include "Math.h"
+  2219	
+  2220	template <typename T>
+  2221	struct Vec4;
+  2222	
+  2223	template <typename T>
+  2224	struct Vec3 {
+  2225		union {
+  2226			struct { T x, y, z; };
+  2227	        struct { T r, g, b; };
+  2228			T v[3];
+  2229		};
+  2230	
+  2231		Vec3() = default;
+  2232		Vec3(T xv, T yv, T zv) : x(xv), y(yv), z(zv) {}
+  2233		Vec3(T s) : x(s), y(s), z(s) {}
+  2234		Vec3(const T *v) : x(v[0]), y(v[1]), z(v[2]) {}
+  2235	    Vec3(const Vec4<T> &v) : Vec3(&v.x) {}
+  2236	
+  2237	    const Vec3 &operator=(const Vec4<T> &v);
+  2238	
+  2239		void Clear() { x = T(0); y = T(0); z = T(0); }
+  2240		void Set(T xv, T yv, T zv) { x = xv; y = yv; z = zv; }
+  2241		void Set(T s) { x = s; y = s; z = s; }
+  2242		void Set(const T *v) { x = v[0]; y = v[1]; z = v[2]; }
+  2243	
+  2244		void Add(const Vec3 &other);
+  2245		Vec3 AddR(const Vec3 &other) const;
+  2246		void Sub(const Vec3 &other);
+  2247		Vec3 SubR(const Vec3 &other) const;
+  2248		void Scale(T s);
+  2249		Vec3 ScaleR(T s) const;
+  2250		void AddScaled(const Vec3 &other, T s);
+  2251		Vec3 AddScaledR(const Vec3 &other, T s) const;
+  2252	
+  2253		T    Dot(const Vec3 &other) const;
+  2254		Vec3 Cross(const Vec3 &other) const;
+  2255	
+  2256		T    Length() const;
+  2257		T    LengthSq() const;
+  2258		void Normalize();
+  2259	
+  2260		bool IsZero() const { return x == T(0) && y == T(0) && z == T(0); }
+  2261		bool IsUnitLength() const { return LengthSq() == T(1); }
+  2262	};
+  2263	
+  2264	template <typename T>
+  2265	const Vec3<T> &Vec3<T>::operator=(const Vec4<T> &v) {
+  2266	    x = v.x;
+  2267	    y = v.y;
+  2268	    z = v.z;
+  2269	    return *this;
+  2270	}
+  2271	
+  2272	template <typename T>
+  2273	void Vec3<T>::Add(const Vec3 &other) {
+  2274		x += other.x;
+  2275		y += other.y;
+  2276		z += other.z;
+  2277	}
+  2278	
+  2279	template <typename T>
+  2280	Vec3<T> Vec3<T>::AddR(const Vec3 &other) const {
+  2281		return Vec3<T>{x + other.x, y + other.y, z + other.z};
+  2282	}
+  2283	
+  2284	template <typename T>
+  2285	void Vec3<T>::Sub(const Vec3 &other) {
+  2286		x -= other.x;
+  2287		y -= other.y;
+  2288		z -= other.z;
+  2289	}
+  2290	
+  2291	template <typename T>
+  2292	Vec3<T> Vec3<T>::SubR(const Vec3 &other) const {
+  2293		return Vec3<T>{x - other.x, y - other.y, z - other.z};
+  2294	}
+  2295	
+  2296	template <typename T>
+  2297	void Vec3<T>::Scale(T s) {
+  2298		x *= s;
+  2299		y *= s;
+  2300		z *= s;
+  2301	}
+  2302	
+  2303	template <typename T>
+  2304	Vec3<T> Vec3<T>::ScaleR(T s) const {
+  2305		return Vec3<T>{s * x, s * y, s * z};
+  2306	}
+  2307	
+  2308	template <typename T>
+  2309	void Vec3<T>::AddScaled(const Vec3& other, T s) {
+  2310		x += s * other.x;
+  2311		y += s * other.y;
+  2312		z += s * other.z;
+  2313	}
+  2314	
+  2315	template <typename T>
+  2316	Vec3<T> Vec3<T>::AddScaledR(const Vec3& other, T s) const {
+  2317		return Vec3<T>{x + s * other.x, y + s * other.y, z + s * other.z};
+  2318	}
+  2319	
+  2320	template <typename T>
+  2321	T Vec3<T>::Dot(const Vec3& other) const {
+  2322		return x * other.x + y * other.y + z * other.z;
+  2323	}
+  2324	
+  2325	template <typename T>
+  2326	Vec3<T> Vec3<T>::Cross(const Vec3& other) const {
+  2327		return Vec3<T>{y * other.z - z * other.y,
+  2328					   z * other.x - x * other.z,
+  2329					   x * other.y - y * other.x};
+  2330	}
+  2331	
+  2332	template <typename T>
+  2333	T Vec3<T>::Length() const {
+  2334		return std::sqrt(x * x + y * y + z * z);
+  2335	}
+  2336	
+  2337	template <typename T>
+  2338	T Vec3<T>::LengthSq() const {
+  2339		return x * x + y * y + z * z;
+  2340	}
+  2341	
+  2342	template <typename T>
+  2343	void Vec3<T>::Normalize() {
+  2344		const T norm = (T)std::sqrt(x * x + y * y + z * z);
+  2345		if (norm > 0) {
+  2346			x /= norm;
+  2347			y /= norm;
+  2348			z /= norm;
+  2349		}
+  2350	}
+  2351	
+  2352	template <typename T>
+  2353	Vec3<T> operator+(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2354		return lhs.AddR(rhs);
+  2355	}
+  2356	
+  2357	template <typename T>
+  2358	Vec3<T> operator+(const Vec3<T> &lhs, const T rhs) {
+  2359	    return {lhs.x + rhs, lhs.y + rhs, lhs.z + rhs};
+  2360	}
+  2361	
+  2362	template <typename T>
+  2363	void operator+=(Vec3<T> &lhs, const Vec3<T> &rhs) { 
+  2364		lhs.Add(rhs); 
+  2365	}
+  2366	
+  2367	template <typename T>
+  2368	Vec3<T> operator-(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2369		return lhs.SubR(rhs);
+  2370	}
+  2371	
+  2372	template <typename T>
+  2373	void operator-=(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2374		lhs.Sub(rhs);
+  2375	}
+  2376	
+  2377	template <typename T>
+  2378	Vec3<T> operator-(const Vec3<T> &lhs, const T rhs) {
+  2379	    return {lhs.x - rhs, lhs.y - rhs, lhs.z - rhs};
+  2380	}
+  2381	
+  2382	template <typename T>
+  2383	Vec3<T> operator*(T s, const Vec3<T> &rhs) {
+  2384		return rhs.ScaleR(s);
+  2385	}
+  2386	
+  2387	template <typename T>
+  2388	Vec3<T> operator*(const Vec3<T> &lhs, T s) {
+  2389		return lhs.ScaleR(s);
+  2390	}
+  2391	
+  2392	template <typename T>
+  2393	Vec3<T> operator*(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2394	    return {lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z};
+  2395	}
+  2396	
+  2397	template <typename T>
+  2398	Vec3<T> operator/(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2399	    return { lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z };
+  2400	}
+  2401	
+  2402	template <typename T>
+  2403	void operator*=(Vec3<T> &lhs, T s) {
+  2404		lhs.Scale(s);
+  2405	}
+  2406	
+  2407	template <typename T>
+  2408	void operator/=(Vec3<T> &lhs, T s) {
+  2409	    lhs.Scale(T(1) / s);
+  2410	}
+  2411	
+  2412	template <typename T>
+  2413	Vec3<T> operator%(const Vec3<T> &lhs, const Vec3<T> &rhs) {
+  2414		return lhs.Cross(rhs);
+  2415	}
+  2416	
+  2417	template <typename T>
+  2418	void operator%=(Vec3<T> &lhs, const Vec3<T> &rhs) { 
+  2419		lhs = lhs.Cross(rhs); 
+  2420	}
+  2421	
+  2422	template <typename T>
+  2423	std::ostream &operator<<(std::ostream &os, const Vec3<T> &obj) {
+  2424		return os << "(" << obj.x << ", " << obj.y << ", " << obj.z << ")";
+  2425	}
+  2426	#pragma once
+  2427	
+  2428	#include <ostream>
+  2429	
+  2430	#include "Math.h"
+  2431	
+  2432	template <typename T>
+  2433	struct Vec3;
+  2434	
+  2435	template <typename T>
+  2436	struct Vec4 {
+  2437		union {
+  2438			struct { T x, y, z, w; };
+  2439	        struct { T r, g, b, a; };
+  2440			T v[4];
+  2441		};
+  2442	
+  2443		Vec4() = default;
+  2444		Vec4(T xv, T yv, T zv, T wv) : x(xv), y(yv), z(zv), w(wv) {}
+  2445	    Vec4(T xv, T yv, T zv) : Vec4(xv, yv, zv, T(1)) {}
+  2446		Vec4(T s) : x(s), y(s), z(s), w(s) {}
+  2447		Vec4(const T *v) : x(v[0]), y(v[1]), z(v[2]), w(v[3]) {}
+  2448	    Vec4(const Vec3<T> &v, T w) : Vec4(v.x, v.y, v.z, w) {}
+  2449	    Vec4(const Vec3<T> &v) : Vec4(v, T(1)) {}
+  2450	
+  2451	    const Vec4 &operator=(const Vec3<T> &v);
+  2452	
+  2453		void Clear() { x = T(0); y = T(0); z = T(0); w = T(0); }
+  2454		void Set(T xv, T yv, T zv, T wv) { x = xv; y = yv; z = zv; w = wv; }
+  2455		void Set(T s) { x = s; y = s; z = s; w = s; }
+  2456		void Set(const T *v) { x = v[0]; y = v[1]; z = v[2]; w = v[3]; }
+  2457	
+  2458		void Add(const Vec4 &other);
+  2459		Vec4 AddR(const Vec4 &other) const;
+  2460		void Sub(const Vec4 &other);
+  2461		Vec4 SubR(const Vec4 &other) const;
+  2462		void Scale(T s);
+  2463		Vec4 ScaleR(T s) const;		
+  2464		void AddScaled(const Vec4 &other, T s);
+  2465		Vec4 AddScaledR(const Vec4 &other, T s) const;
+  2466	
+  2467		T	 Dot(const Vec4 &other) const;
+  2468		//Vec4 Cross(const Vec4 &other) const;
+  2469	
+  2470		T    Length() const;
+  2471		T    LengthSq() const;
+  2472		void Normalize();
+  2473	
+  2474		bool IsZero() const { return x == T(0) && y == T(0) && z == T(0) && w == T(0); }
+  2475		bool IsUnitLength() const { return LengthSq() == T(1); }
+  2476	};
+  2477	
+  2478	template <typename T>
+  2479	const Vec4<T> &Vec4<T>::operator=(const Vec3<T> &v) {
+  2480	    x = v.x;
+  2481	    y = v.y;
+  2482	    z = v.z;
+  2483	    w = T(1);
+  2484	    return *this;
+  2485	}
+  2486	
+  2487	template <typename T>
+  2488	void Vec4<T>::Add(const Vec4 &other) {
+  2489		x += other.x;
+  2490		y += other.y;
+  2491		z += other.z;
+  2492		w += other.w;
+  2493	}
+  2494	
+  2495	template <typename T>
+  2496	Vec4<T> Vec4<T>::AddR(const Vec4 &other) const {
+  2497		return Vec4<T>{x + other.x, y + other.y, z + other.z, w + other.w};
+  2498	}
+  2499	
+  2500	template <typename T>
+  2501	void Vec4<T>::Sub(const Vec4 &other) {
+  2502		x -= other.x;
+  2503		y -= other.y;
+  2504		z -= other.z;
+  2505	    w -= other.w;
+  2506	}
+  2507	
+  2508	template <typename T>
+  2509	Vec4<T> Vec4<T>::SubR(const Vec4 &other) const {
+  2510		return Vec4<T>{x - other.x, y - other.y, z - other.z, w - other.w};
+  2511	}
+  2512	
+  2513	template <typename T>
+  2514	void Vec4<T>::Scale(T s) {
+  2515		x *= s;
+  2516		y *= s;
+  2517		z *= s;
+  2518	    w *= s;
+  2519	}
+  2520	
+  2521	template <typename T>
+  2522	Vec4<T> Vec4<T>::ScaleR(T s) const {
+  2523		return Vec4<T>{s * x, s * y, s * z, s * w};
+  2524	}
+  2525	
+  2526	template <typename T>
+  2527	void Vec4<T>::AddScaled(const Vec4& other, T s) {
+  2528		x += s * other.x;
+  2529		y += s * other.y;
+  2530		z += s * other.z;
+  2531	    w += s * other.w;
+  2532	}
+  2533	
+  2534	template <typename T>
+  2535	Vec4<T> Vec4<T>::AddScaledR(const Vec4& other, T s) const {
+  2536		return Vec4<T>{x + s * other.x, y + s * other.y, z + s * other.z, w + s * other.w};
+  2537	}
+  2538	
+  2539	template <typename T>
+  2540	T Vec4<T>::Dot(const Vec4& other) const {
+  2541		return x * other.x + y * other.y + z * other.z + w * other.w;
+  2542	}
+  2543	
+  2544	//template <typename T>
+  2545	//Vec4<T> Vec4<T>::Cross(const Vec4& other) const {
+  2546	//	return Vec4<T>{y * other.z - z * other.y,
+  2547	//				   z * other.x - x * other.z,
+  2548	//				   x * other.y - y * other.x};
+  2549	//}
+  2550	
+  2551	template <typename T>
+  2552	T Vec4<T>::Length() const {
+  2553		return std::sqrt(x * x + y * y + z * z + w * w);
+  2554	}
+  2555	
+  2556	template <typename T>
+  2557	T Vec4<T>::LengthSq() const {
+  2558		return x * x + y * y + z * z + w * w;
+  2559	}
+  2560	
+  2561	template <typename T>
+  2562	void Vec4<T>::Normalize() {
+  2563		const T norm = (T)std::sqrt(x * x + y * y + z * z + w * w);
+  2564		if (norm > 0) {
+  2565			x /= norm;
+  2566			y /= norm;
+  2567			z /= norm;
+  2568	        w /= norm;
+  2569		}
+  2570	}
+  2571	
+  2572	template <typename T>
+  2573	Vec4<T> operator+(const Vec4<T> &lhs, const Vec4<T> &rhs) {
+  2574		return lhs.AddR(rhs);
+  2575	}
+  2576	
+  2577	template <typename T>
+  2578	void operator+=(Vec4<T> &lhs, const Vec4<T> &rhs) { 
+  2579		lhs.Add(rhs); 
+  2580	}
+  2581	
+  2582	template <typename T>
+  2583	Vec4<T> operator+(const Vec4<T> &lhs, const T rhs) {
+  2584	    return {lhs.x + rhs, lhs.y + rhs, lhs.z + rhs, lhs.w + rhs};
+  2585	}
+  2586	
+  2587	template <typename T>
+  2588	Vec4<T> operator-(const Vec4<T> &lhs, const Vec4<T> &rhs) {
+  2589		return lhs.SubR(rhs);
+  2590	}
+  2591	
+  2592	template <typename T>
+  2593	void operator-=(Vec4<T> &lhs, const Vec4<T> &rhs) {
+  2594	    lhs.Sub(rhs);
+  2595	}
+  2596	
+  2597	template <typename T>
+  2598	Vec4<T> operator-(const Vec4<T> &lhs, const T rhs) {
+  2599	    return {lhs.x - rhs, lhs.y - rhs, lhs.z - rhs, lhs.w - rhs};
+  2600	}
+  2601	
+  2602	template <typename T>
+  2603	Vec4<T> operator*(T s, const Vec4<T> &rhs) {
+  2604		return rhs.ScaleR(s);
+  2605	}
+  2606	
+  2607	template <typename T>
+  2608	Vec4<T> operator*(const Vec4<T> &lhs, T s) {
+  2609		return lhs.ScaleR(s);
+  2610	}
+  2611	
+  2612	template <typename T>
+  2613	Vec4<T> operator*(const Vec4<T> &lhs, const Vec4<T> &rhs) {
+  2614	    return {lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w};
+  2615	}
+  2616	
+  2617	template <typename T>
+  2618	void operator*=(Vec4<T> &lhs, T s) {
+  2619	    return lhs.Scale(s);
+  2620	}
+  2621	
+  2622	template <typename T>
+  2623	void operator/=(const Vec4<T> &lhs, T s) {
+  2624	    lhs.Scale(T(1) / s);
+  2625	}
+  2626	
+  2627	//template <typename T>
+  2628	//Vec4<T> operator%(const Vec4<T> &lhs, const Vec4<T> &rhs) {
+  2629	//	return lhs.Cross(rhs);
+  2630	//}
+  2631	
+  2632	template <typename T>
+  2633	std::ostream &operator<<(std::ostream &os, const Vec4<T> &obj) {
+  2634		return os << "(" << obj.x << ", " << obj.y << ", " << obj.z << ", " << obj.w << ")";
+  2635	}

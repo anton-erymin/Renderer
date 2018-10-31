@@ -2,8 +2,7 @@
 
 #include <ostream>
 
-//#define _USE_MATH_DEFINES
-#include <cmath>
+#include "Math.h"
 
 template <typename T>
 struct Vec3;
@@ -195,6 +194,11 @@ void operator*=(Vec4<T> &lhs, T s) {
     return lhs.Scale(s);
 }
 
+template <typename T>
+void operator/=(const Vec4<T> &lhs, T s) {
+    lhs.Scale(T(1) / s);
+}
+
 //template <typename T>
 //Vec4<T> operator%(const Vec4<T> &lhs, const Vec4<T> &rhs) {
 //	return lhs.Cross(rhs);
@@ -203,16 +207,4 @@ void operator*=(Vec4<T> &lhs, T s) {
 template <typename T>
 std::ostream &operator<<(std::ostream &os, const Vec4<T> &obj) {
 	return os << "(" << obj.x << ", " << obj.y << ", " << obj.z << ", " << obj.w << ")";
-}
-
-template <typename T>
-T Dot(const Vec4<T> &lhs, const Vec4<T> &rhs) {
-    return lhs.Dot(rhs);
-}
-
-template <typename T>
-Vec4<T> Normalize(const Vec4<T> &v) {
-    Vec4<T> result = v;
-    result.Normalize();
-    return result;
 }

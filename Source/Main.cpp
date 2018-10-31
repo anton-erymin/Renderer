@@ -1,59 +1,83 @@
 #include <iostream>
 
 #include "Logger.h"
-#include "Render.h"
+#include "ForwardRenderer.h"
 
 #define WIDTH    (1600)
 #define HEIGHT   (1200)
 
-std::string SaveTexture(const Texture &texture) {
-    auto fileName = texture.Name() + ".bmp";
-    texture.SaveBmp(fileName);
-    return fileName;
-}
+// TODO: Comments
+// TODO: Blurs
+// TODO: Bump mapping
+// TODO: Normal mapping
+// TODO: Paralax mapping
+// TODO: Bloom
+// TODO: MRT
+// TODO: Shadow map
+// TODO: SSAO
+// TODO: SSR
+// TODO: Texture filtering
+// TODO: Skybox
+// TODO: Spot light
+// TODO: PBR
+// TODO: Simple scene graph
+// TODO: Camera
+// TODO: Render base class
+// TODO: Deferred renderer
+// TODO: Transparency
+// TODO: Move math vec operators and functions into single place
+// TODO: Move lighting algrorithms into Algorithms.cpp
+// TODO: Gaussian blur bug duplicated central pixel
+// TODO: Measure time
 
 int main() {
-	Texture frameBuffer{ "FrameBuffer", WIDTH, HEIGHT, 3, sizeof(float_t) };
-    Texture depthTexture{"Depth", WIDTH, HEIGHT, 1, sizeof(float_t)};
-
-    float_t depthClearValue[] = {1.0f};
-    depthTexture.Clear(depthClearValue);
+    // Setup scene
 
     Scene scene;
 
-    //scene.LoadMeshFromObj("Data\\Cube\\cube.obj");
+    // Geometry
+
+    //scene.LoadMeshFromObj("Data/Cube/cube.obj", false);
     //scene.LoadMeshFromObj("Data/Sponza/sponza.obj");
-    scene.LoadMeshFromObj("Data/Car/Car.obj");
+    //scene.LoadMeshFromObj("Data/living_room/living_room.obj");
+    //scene.LoadMeshFromObj("Data/Car/Car.obj");
     //scene.LoadMeshFromObj("Data\\CornellBox\\cornellbox.obj");
+    scene.LoadMeshFromObj("Data/aston-martin/source/AM-01/AM-01.obj", true, false, true);
 
-    Mat4f projection;
-    Mat4f view;
-    Mat4f model;
+    // Lights
 
-    view.LookAt({0.0f, 10.0f, 3.0f}, {0, 0, 0}, {0, 1, 0});
+    Light light;
+    size_t numLights = 4;
+    float_t R = 1.0f;
+    for (size_t i = 0; i < numLights; i++) {
+        light.lightType = LightType::Omni;
+        light.position = { R * std::cosf(2 * float_t(M_PI) / numLights * i), 0.5f, R * std::sinf(2 * float_t(M_PI) / numLights * i) };
+        light.ambient = { 0.1f, 0.1f, 0.1f };
+        light.diffuse = { 1.0f, 1.0f, 1.0f };
+        //light.diffuse = { RAND_RANGE(0.1f, 1.0f), RAND_RANGE(0.1f, 1.0f), RAND_RANGE(0.1f, 1.0f) };
+        light.specular = { 1.0f, 1.0f, 1.0f };
+        light.linear = 0.1f;
+        light.quadratic = 0.03f;
+        scene.lights.push_back(light);
+    }
 
-    projection.PerspectiveProjection(45.0f, frameBuffer.GetAspectRatio(), 0.01f, 10000.0f);
-
-    Render render;
-    VertexShader vertexShader;
-    FragmentShader fragmentShader;
-
-    vertexShader.model = model;
-    vertexShader.view = view;
-    vertexShader.projection = projection;
+    light.lightType = LightType::Directional;
+    light.direction = {0.0f, -1.0f, -1.0f};
+    light.ambient = { 0.1f, 0.1f, 0.1f };
+    light.diffuse = { 30.0f, 30.0f, 30.0f };
+    light.specular = { 1.0f, 1.0f, 1.0f };
+    //scene.lights.push_back(light);
 
     Viewport viewport;
     viewport.x = 0;
     viewport.y = 0;
-    viewport.width = frameBuffer.Width();
-    viewport.height = frameBuffer.Height();
+    viewport.width = WIDTH;
+    viewport.height = HEIGHT;
 
-    render.RenderScene(scene, frameBuffer, &depthTexture, vertexShader, fragmentShader, viewport);
+    ForwardRenderer renderer{WIDTH, HEIGHT};
+    Texture &result = renderer.Render(scene, viewport);
 
-    auto framebufferFileName = SaveTexture(frameBuffer);
-    SaveTexture(depthTexture);
-
-	system(framebufferFileName.c_str());
+	system((result.Name() + ".bmp").c_str());
 
 	std::cin.get();
 	return 0;

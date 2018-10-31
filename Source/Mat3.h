@@ -2,9 +2,7 @@
 
 #include <ostream>
 
-//#define _USE_MATH_DEFINES
-#include <cmath>
-
+#include "Math.h"
 #include "Vec3.h"
 
 template <typename T>

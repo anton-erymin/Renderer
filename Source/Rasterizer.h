@@ -27,14 +27,10 @@ struct DrawTriangleInfo {
     PolygonMode      polygonMode;
 };
 
-// Side 1 from v1 - v3
-// Side 2 from v1 - v2
-// Side 3 from v2 - v3
-
 class Rasterizer {
 public:
     Rasterizer();
-    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, FragmentShader &shader);
+    void DrawTriangle(DrawTriangleInfo &triangleInfo, Texture &target, Texture *depthTarget, PhongFragmentShader &shader);
 
 private:
     struct AttributeInterpolationInfo {
@@ -47,17 +43,6 @@ private:
         float_t dhor;
         float_t attributeValue;
     };
-
-    using TriangleFillCallback = std::function<void(int32_t, int32_t, int32_t, int32_t, bool, bool)>;
-    using TriangleLineCallback = std::function<void(int32_t, int32_t, size_t)>;
-    using LineCallback         = std::function<void(int32_t, int32_t)>;
-
-    void RasterizeTriangleFill(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleFillCallback &&callback) const;
-    void RasterizeTriangleLine(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback &&callback) const;
-    void RasterizeTrianglePoint(const Vec2i &x1, const Vec2i &x2, const Vec2i &x3, TriangleLineCallback &&callback) const;
-
-    void LineDDA(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) const;
-    void LineBresenham(const Vec2i &x1, const Vec2i &x2, LineCallback &&callback) const;
 
     AttributeInterpolationInfo attributeInfos[RASTERIZER_MAX_ATTRIBUTES];
 };

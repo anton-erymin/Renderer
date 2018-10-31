@@ -12,3 +12,5 @@ newmtl default
   Ks 0.2 0.2 0.2
   Ke 0 0 0
   map_Kd container2.png
+  map_Ks container2_specular.png
+  map_Ke matrix.jpg

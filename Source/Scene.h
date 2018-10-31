@@ -8,8 +8,11 @@
 #include "Types.h"
 #include "Texture.h"
 
+// Describing scene
+
 struct Material;
 
+/* Mesh class */
 struct Mesh {
     std::string name;
 
@@ -36,15 +39,39 @@ struct Mesh {
     }
 };
 
+/* Material */
 struct Material {
     std::string name;
-    Vec3f albedo;
+    Vec3f ambient{0.1f, 0.1f, 0.1f};
+    Vec3f albedo{1.0f, 1.0f, 1.0f};
+    Vec3f specular{1.0f, 1.0f, 1.0f};
+    Vec3f emission{0, 0, 0};
+    float_t shininess;
+    const Texture *ambientMap{nullptr};
     const Texture *albedoMap{nullptr};
-    Vec3f ambient;
+    const Texture *specularMap{nullptr};
+    const Texture *emissionMap{ nullptr };
 };
 
-struct Light {
+enum class LightType {
+    Directional = 0,
+    Omni = 1
+};
 
+/* Light */
+struct Light {
+    LightType lightType;
+    union {
+        Vec3f direction;
+        Vec3f position;
+    };
+    Vec3f ambient;
+    Vec3f diffuse;
+    Vec3f specular;
+
+    float_t constant{1.0f};
+    float_t linear{1.0f};
+    float_t quadratic{1.0f};
 };
 
 struct Scene {
@@ -54,5 +81,5 @@ struct Scene {
     
     std::unordered_map<std::string, Texture> texturesMap;
 
-    void LoadMeshFromObj(const std::string &filename);
+    void LoadMeshFromObj(const std::string &filename, bool scaleToUnit = true, bool invertTexU = false, bool invertTexV = false);
 };

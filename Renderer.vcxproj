@@ -19,20 +19,25 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Algorithms.cpp" />
+    <ClCompile Include="Source\ForwardRenderer.cpp" />
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\Scene.cpp" />
     <ClCompile Include="Source\Rasterizer.cpp" />
-    <ClCompile Include="Source\Render.cpp" />
+    <ClCompile Include="Source\Pipeline.cpp" />
     <ClCompile Include="Source\Shader.cpp" />
     <ClCompile Include="Source\Texture.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Algorithms.h" />
+    <ClInclude Include="Source\ForwardRenderer.h" />
     <ClInclude Include="Source\Logger.h" />
     <ClInclude Include="Source\Mat3.h" />
     <ClInclude Include="Source\Mat4.h" />
+    <ClInclude Include="Source\Math.h" />
     <ClInclude Include="Source\Scene.h" />
     <ClInclude Include="Source\Rasterizer.h" />
-    <ClInclude Include="Source\Render.h" />
+    <ClInclude Include="Source\Pipeline.h" />
     <ClInclude Include="Source\Shader.h" />
     <ClInclude Include="Source\Texture.h" />
     <ClInclude Include="Source\Types.h" />

@@ -2,13 +2,8 @@
 
 #include <ostream>
 
-#define _USE_MATH_DEFINES
-#include <math.h>
-
+#include "Math.h"
 #include "Vec4.h"
-
-#define DEG_TO_RAD(x)  (x * M_PI / 180)
-#define RAD_TO_DEG(x)  (x * 180 / M_PI)
 
 #define MAT4_NUM_ELEMENTS   (16)
 

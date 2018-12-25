@@ -7,6 +7,7 @@
 #define HEIGHT   (1200)
 
 // TODO: Comments
+// TODO: Multisampling
 // TODO: Blurs
 // TODO: Bump mapping
 // TODO: Normal mapping

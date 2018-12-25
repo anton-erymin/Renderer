@@ -137,7 +137,7 @@ void Texture::SaveBmp(const std::string &fileName) const {
 
 	auto srcPtr = buffer.data();
 	auto dstPtr = imageData.data();
-    float r, g, b;
+    float r = 0, g = 0, b = 0;
 
     for (size_t i = 0; i < width * height; i++) {
         if (numComponents == 1) {

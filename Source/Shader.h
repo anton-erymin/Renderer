@@ -24,16 +24,14 @@ public:
 
     /* How many bytes is as in? */
     void SetIn(size_t numBytes, void *inputStart) {
-        assert(numBytes > 0);
-        assert(inputStart);
+        assert(numBytes > 0 && inputStart);
         this->numInputBytes = numBytes;
         this->inStart = inputStart;
     }
 
     /* How many bytes is as out? */
     void SetOut(size_t numBytes, void *outStart) {
-        assert(numBytes > 0);
-        assert(outStart);
+        assert(numBytes > 0 && outStart);
         this->numOutputBytes = numBytes;
         this->outStart = outStart;
     }
@@ -44,18 +42,18 @@ protected:
     /* Shader user entry point. */
     virtual void Main() = 0;
 
-    size_t numInputBytes;
-    size_t numOutputBytes;
-    void *inStart;
-    const void *outStart;
+    size_t numInputBytes{0};
+    size_t numOutputBytes{0};
+    void *inStart{nullptr};
+    const void *outStart{nullptr};
 };
 
 /* Basic vertex shader. */
 class BaseVertexShader : public Shader {
 public:
-    UNIFORM Mat4f model;
-    UNIFORM Mat4f view;
-    UNIFORM Mat4f projection;
+    UNIFORM Mat4f model{};
+    UNIFORM Mat4f view{};
+    UNIFORM Mat4f projection{};
 
     BaseVertexShader() {
         SetIn(sizeof(Vec3f) * 2 + sizeof(Vec2f), &inPosition);
@@ -65,24 +63,24 @@ public:
     virtual void Main() override;
 
 private:
-    IN Vec3f inPosition;
-    IN Vec3f inNormal;
-    IN Vec2f inUV;
+    IN Vec3f inPosition{};
+    IN Vec3f inNormal{};
+    IN Vec2f inUV{};
 
-    OUT Vec4f outClipPosition;
-    OUT Vec3f outWorldPosition;
-    OUT Vec3f outWorldNormal;
-    OUT Vec2f outUV;
+    OUT Vec4f outClipPosition{};
+    OUT Vec3f outWorldPosition{};
+    OUT Vec3f outWorldNormal{};
+    OUT Vec2f outUV{};
 
-    OUT float_t outDepthViewInverse;
+    OUT float_t outDepthViewInverse{0};
 };
 
 /* Basic phong fragment shader. */
 class PhongFragmentShader : public Shader {
 public:
-    UNIFORM Material *material;
-    UNIFORM const std::vector<Light> *lights;
-    UNIFORM Vec3f viewPosition;
+    UNIFORM Material *material = nullptr;
+    UNIFORM const std::vector<Light> *lights = nullptr;
+    UNIFORM Vec3f viewPosition{};
 
     PhongFragmentShader() {
         SetIn(sizeof(Vec3f) * 2 + sizeof(Vec2f) + sizeof(float_t), &inWorldPosition);
@@ -92,10 +90,10 @@ public:
     virtual void Main() override;
 
 private:
-    IN Vec3f inWorldPosition;
-    IN Vec3f inWorldNormal;
-    IN Vec2f inUV;
-    IN float_t inDepthViewInverse;
+    IN Vec3f inWorldPosition{};
+    IN Vec3f inWorldNormal{};
+    IN Vec2f inUV{};
+    IN float_t inDepthViewInverse{0};
 
-    OUT Vec4f outFragColor;
+    OUT Vec4f outFragColor{};
 };

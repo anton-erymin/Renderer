@@ -19,16 +19,15 @@ struct Vec4 {
 	Vec4(T xv, T yv, T zv, T wv) : x(xv), y(yv), z(zv), w(wv) {}
     Vec4(T xv, T yv, T zv) : Vec4(xv, yv, zv, T(1)) {}
 	Vec4(T s) : x(s), y(s), z(s), w(s) {}
-	Vec4(const T *v) : x(v[0]), y(v[1]), z(v[2]), w(v[3]) {}
-    Vec4(const Vec3<T> &v, T w) : Vec4(v.x, v.y, v.z, w) {}
-    Vec4(const Vec3<T> &v) : Vec4(v, T(1)) {}
+	Vec4(const T *values) : x(values[0]), y(values[1]), z(values[2]), w(values[3]) {}
+    Vec4(const Vec3<T> &vec3, T w = T(1)) : Vec4(vec3.x, vec3.y, vec3.z, w) {}
 
-    const Vec4 &operator=(const Vec3<T> &v);
+    const Vec4 &operator=(const Vec3<T> &vec3);
 
 	void Clear() { x = T(0); y = T(0); z = T(0); w = T(0); }
 	void Set(T xv, T yv, T zv, T wv) { x = xv; y = yv; z = zv; w = wv; }
 	void Set(T s) { x = s; y = s; z = s; w = s; }
-	void Set(const T *v) { x = v[0]; y = v[1]; z = v[2]; w = v[3]; }
+	void Set(const T *values) { x = values[0]; y = values[1]; z = values[2]; w = values[3]; }
 
 	void Add(const Vec4 &other);
 	Vec4 AddR(const Vec4 &other) const;
@@ -51,10 +50,10 @@ struct Vec4 {
 };
 
 template <typename T>
-const Vec4<T> &Vec4<T>::operator=(const Vec3<T> &v) {
-    x = v.x;
-    y = v.y;
-    z = v.z;
+const Vec4<T> &Vec4<T>::operator=(const Vec3<T> &vec3) {
+    x = vec3.x;
+    y = vec3.y;
+    z = vec3.z;
     w = T(1);
     return *this;
 }

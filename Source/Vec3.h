@@ -18,15 +18,15 @@ struct Vec3 {
 	Vec3() = default;
 	Vec3(T xv, T yv, T zv) : x(xv), y(yv), z(zv) {}
 	Vec3(T s) : x(s), y(s), z(s) {}
-	Vec3(const T *v) : x(v[0]), y(v[1]), z(v[2]) {}
-    Vec3(const Vec4<T> &v) : Vec3(&v.x) {}
+	Vec3(const T *values) : x(values[0]), y(values[1]), z(values[2]) {}
+    Vec3(const Vec4<T> &vec4) : Vec3(&vec4.x) {}
 
-    const Vec3 &operator=(const Vec4<T> &v);
+    const Vec3 &operator=(const Vec4<T> &vec4);
 
 	void Clear() { x = T(0); y = T(0); z = T(0); }
 	void Set(T xv, T yv, T zv) { x = xv; y = yv; z = zv; }
 	void Set(T s) { x = s; y = s; z = s; }
-	void Set(const T *v) { x = v[0]; y = v[1]; z = v[2]; }
+	void Set(const T *values) { x = values[0]; y = values[1]; z = values[2]; }
 
 	void Add(const Vec3 &other);
 	Vec3 AddR(const Vec3 &other) const;
@@ -49,10 +49,10 @@ struct Vec3 {
 };
 
 template <typename T>
-const Vec3<T> &Vec3<T>::operator=(const Vec4<T> &v) {
-    x = v.x;
-    y = v.y;
-    z = v.z;
+const Vec3<T> &Vec3<T>::operator=(const Vec4<T> &vec4) {
+    x = vec4.x;
+    y = vec4.y;
+    z = vec4.z;
     return *this;
 }
 

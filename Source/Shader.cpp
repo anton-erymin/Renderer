@@ -12,8 +12,7 @@ void BaseVertexShader::Main() {
 }
 
 void PhongFragmentShader::Main() {
-    assert(material);
-    assert(lights);
+    assert(material && lights);
 
     inUV.x /= inDepthViewInverse;
     inUV.y /= inDepthViewInverse;
